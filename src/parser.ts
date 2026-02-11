@@ -63,6 +63,7 @@ export class Parser {
   private lexer: Lexer;
   private current: Token | null;
   private previous!: Token;
+  private lookahead: Token[] = [];
   readonly diagnostics: Diagnostic[] = [];
 
   constructor(lexer: Lexer) {
@@ -96,6 +97,7 @@ export class Parser {
     }
 
     if (this.match(TokenType.Import)) {
+      this.ignoreLine();
       const path = this.consume(TokenType.String, "Expect import path.");
 
       let variables: Token[] | null = null;
@@ -106,6 +108,12 @@ export class Parser {
           variables.push(
             this.consume(TokenType.Name, "Expect imported variable name."),
           );
+          // Handle `as Alias` renaming — the alias replaces the original
+          // name in scope (Wren binds the alias, not the original)
+          if (this.match(TokenType.As)) {
+            const alias = this.consume(TokenType.Name, "Expect alias name after 'as'.");
+            variables[variables.length - 1] = alias;
+          }
           if (!this.match(TokenType.Comma)) break;
           this.ignoreLine();
         }
@@ -120,6 +128,7 @@ export class Parser {
 
       let initializer: Expr | null = null;
       if (this.match(TokenType.Equal)) {
+        this.ignoreLine();
         initializer = this.expression();
       }
 
@@ -236,6 +245,10 @@ export class Parser {
       return { kind: "BreakStmt", keyword: this.previous };
     }
 
+    if (this.match(TokenType.Continue)) {
+      return { kind: "ContinueStmt", keyword: this.previous };
+    }
+
     if (this.match(TokenType.If)) {
       this.consume(TokenType.LeftParen, "Expect '(' after 'if'.");
       this.ignoreLine();
@@ -337,12 +350,14 @@ export class Parser {
   private parseTypeAnnotation(): TypeAnnotation | null {
     if (!this.match(TokenType.Colon)) return null;
     const name = this.consume(TokenType.Name, "Expect type name after ':'.");
+    if (name.type !== TokenType.Name) return null;
     return { name };
   }
 
   private parseReturnTypeAnnotation(): TypeAnnotation | null {
     if (!this.match(TokenType.Arrow)) return null;
     const name = this.consume(TokenType.Name, "Expect type name after '->'.");
+    if (name.type !== TokenType.Name) return null;
     return { name };
   }
 
@@ -366,11 +381,13 @@ export class Parser {
     if (!this.match(TokenType.Question)) return expr;
 
     const question = this.previous;
-    const thenBranch = this.conditional();
+    this.ignoreLine();
+    const thenBranch = this.assignment();
     const colon = this.consume(
       TokenType.Colon,
       "Expect ':' after then branch of conditional operator.",
     );
+    this.ignoreLine();
     const elseBranch = this.assignment();
     return {
       kind: "ConditionalExpr",
@@ -448,6 +465,7 @@ export class Parser {
       if (this.match(TokenType.LeftBracket)) {
         const leftBracket = this.previous;
         const args = this.argumentList();
+        this.ignoreLine();
         const rightBracket = this.consume(
           TokenType.RightBracket,
           "Expect ']' after subscript arguments.",
@@ -460,6 +478,14 @@ export class Parser {
           rightBracket,
         };
       } else if (this.match(TokenType.Dot)) {
+        this.ignoreLine();
+        const name = this.consume(TokenType.Name, "Expect method name after '.'.");
+        expr = this.methodCall(expr, name);
+      } else if (this.peekDotAfterNewline()) {
+        // Allow newline before '.' for method chaining: `expr\n.method()`
+        this.ignoreLine();
+        this.advance(); // consume the dot
+        this.ignoreLine();
         const name = this.consume(TokenType.Name, "Expect method name after '.'.");
         expr = this.methodCall(expr, name);
       } else {
@@ -484,10 +510,12 @@ export class Parser {
   private finishCall(): [Expr[] | null, Body | null] {
     let args: Expr[] | null = null;
     if (this.match(TokenType.LeftParen)) {
+      this.ignoreLine();
       if (this.match(TokenType.RightParen)) {
         args = [];
       } else {
         args = this.argumentList();
+        this.ignoreLine();
         this.consume(TokenType.RightParen, "Expect ')' after arguments.");
       }
     }
@@ -563,7 +591,9 @@ export class Parser {
 
   private grouping(): GroupingExpr {
     const leftParen = this.previous;
+    this.ignoreLine();
     const expression = this.expression();
+    this.ignoreLine();
     const rightParen = this.consume(
       TokenType.RightParen,
       "Expect ')' after expression.",
@@ -598,6 +628,7 @@ export class Parser {
     while (this.peek() !== TokenType.RightBrace) {
       const key = this.expression();
       this.consume(TokenType.Colon, "Expect ':' after map key.");
+      this.ignoreLine();
       const value = this.expression();
       entries.push({ key, value });
       this.ignoreLine();
@@ -632,7 +663,9 @@ export class Parser {
 
     while (this.match(TokenType.Interpolation)) {
       strings.push(this.previous);
+      this.ignoreLine();
       expressions.push(this.expression());
+      this.ignoreLine();
     }
 
     strings.push(
@@ -667,6 +700,32 @@ export class Parser {
     return false;
   }
 
+  private peekDotAfterNewline(): boolean {
+    // Check if the next tokens are newline(s) followed by a dot.
+    // This enables method chaining across lines: `expr\n.method()`
+    if (this.peek() !== TokenType.Line) return false;
+    // Read ahead past newlines
+    const buffered: Token[] = [this.current!];
+    this.current = null;
+    let next = this.lexer.readToken();
+    while (next.type === TokenType.Line) {
+      buffered.push(next);
+      next = this.lexer.readToken();
+    }
+    const isDot = next.type === TokenType.Dot;
+    // Put everything back — store next as the token after buffered
+    if (isDot) {
+      // We'll consume the newlines and the dot, so don't buffer
+      // Just restore current to the dot token
+      this.current = next;
+    } else {
+      // Not a dot — push everything back into the lookahead buffer
+      this.lookahead = [...buffered.slice(1), next];
+      this.current = buffered[0]!;
+    }
+    return isDot;
+  }
+
   private matchLine(): boolean {
     if (!this.match(TokenType.Line)) return false;
     while (this.match(TokenType.Line)) {}
@@ -696,7 +755,13 @@ export class Parser {
   }
 
   private peek(): TokenType {
-    if (this.current === null) this.current = this.lexer.readToken();
+    if (this.current === null) {
+      if (this.lookahead.length > 0) {
+        this.current = this.lookahead.shift()!;
+      } else {
+        this.current = this.lexer.readToken();
+      }
+    }
     return this.current.type;
   }
 

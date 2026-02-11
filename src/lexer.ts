@@ -41,6 +41,29 @@ export class Lexer {
 
   constructor(source: SourceFile) {
     this.source = source;
+    this.skipBomAndShebang();
+  }
+
+  private skipBomAndShebang(): void {
+    // Skip UTF-8 BOM (U+FEFF)
+    if (this.source.byteAt(0) === 0xfeff) {
+      this.current = 1;
+    }
+
+    // Skip shebang line: #!...
+    if (
+      this.current < this.source.count &&
+      this.source.byteAt(this.current) === 0x23 /* # */ &&
+      this.current + 1 < this.source.count &&
+      this.source.byteAt(this.current + 1) === 0x21 /* ! */
+    ) {
+      while (
+        this.current < this.source.count &&
+        this.source.byteAt(this.current) !== Chars.lineFeed
+      ) {
+        this.current++;
+      }
+    }
   }
 
   readToken(): Token {
@@ -116,6 +139,12 @@ export class Lexer {
     if (isDigit(c)) return this.readNumber();
     if (isAlpha(c)) return this.readName();
 
+    // Skip class/method attributes: #key or #!key (with optional groups/values)
+    if (c === 0x23 /* # */) {
+      this.skipAttribute();
+      return this.readToken();
+    }
+
     return this.token(TokenType.Error);
   }
 
@@ -168,6 +197,18 @@ export class Lexer {
   }
 
   private readString(): Token {
+    // Check for raw string: """
+    if (
+      this.current + 1 < this.source.count &&
+      this.source.byteAt(this.current) === Chars.quote &&
+      this.source.byteAt(this.current + 1) === Chars.quote
+    ) {
+      // Consume the two extra quotes (first was consumed before this call)
+      this.advance();
+      this.advance();
+      return this.readRawString();
+    }
+
     let type = TokenType.String;
 
     while (this.current < this.source.count) {
@@ -189,6 +230,26 @@ export class Lexer {
     }
 
     return this.token(type);
+  }
+
+  private readRawString(): Token {
+    // Read until closing """
+    while (this.current + 2 < this.source.count) {
+      if (
+        this.source.byteAt(this.current) === Chars.quote &&
+        this.source.byteAt(this.current + 1) === Chars.quote &&
+        this.source.byteAt(this.current + 2) === Chars.quote
+      ) {
+        this.advance();
+        this.advance();
+        this.advance();
+        return this.token(TokenType.String);
+      }
+      this.advance();
+    }
+    // Unterminated raw string — consume remaining
+    while (!this.isAtEnd) this.advance();
+    return this.token(TokenType.String);
   }
 
   private readHexNumber(): Token {
@@ -216,6 +277,23 @@ export class Lexer {
     }
 
     return this.token(TokenType.Number);
+  }
+
+  private skipAttribute(): void {
+    // Skip optional '!' after '#'
+    if (!this.isAtEnd && this.source.byteAt(this.current) === 0x21 /* ! */) {
+      this.advance();
+    }
+    // Skip everything until end of line (handles key, key=value, group(...))
+    // Attributes can contain parenthesized groups, so track nesting
+    let parenDepth = 0;
+    while (!this.isAtEnd) {
+      const ch = this.source.byteAt(this.current);
+      if (ch === Chars.lineFeed && parenDepth === 0) break;
+      if (ch === Chars.leftParen) parenDepth++;
+      if (ch === Chars.rightParen) parenDepth--;
+      this.advance();
+    }
   }
 
   private readName(): Token {

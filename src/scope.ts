@@ -98,6 +98,13 @@ export class Scope {
       }
     }
 
+    // Capitalized names at module level could be forward references
+    const firstByte = name.text.charCodeAt(0);
+    if (!isLowerAlpha(firstByte)) {
+      this.forwardReferences.push(name);
+      return null;
+    }
+
     // Not defined
     this.diagnostics.push({
       message: `Variable '${name.text}' is not defined.`,

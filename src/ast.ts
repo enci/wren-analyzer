@@ -219,6 +219,11 @@ export interface BreakStmt {
   keyword: Token;
 }
 
+export interface ContinueStmt {
+  kind: "ContinueStmt";
+  keyword: Token;
+}
+
 export type Stmt =
   | VarStmt
   | ClassStmt
@@ -229,6 +234,7 @@ export type Stmt =
   | ReturnStmt
   | BlockStmt
   | BreakStmt
+  | ContinueStmt
   | Expr;
 
 // --- Method + Body ---

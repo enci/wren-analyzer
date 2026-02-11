@@ -31,6 +31,7 @@ import type {
   ReturnStmt,
   BlockStmt,
   BreakStmt,
+  ContinueStmt,
 } from "./ast.js";
 
 export interface AstVisitor {
@@ -68,6 +69,7 @@ export interface AstVisitor {
   visitReturnStmt(node: ReturnStmt): void;
   visitBlockStmt(node: BlockStmt): void;
   visitBreakStmt(node: BreakStmt): void;
+  visitContinueStmt(node: ContinueStmt): void;
 }
 
 export function visitExpr(visitor: AstVisitor, node: Expr): void {
@@ -104,6 +106,7 @@ export function visitStmt(visitor: AstVisitor, node: Stmt): void {
     case "ReturnStmt": return visitor.visitReturnStmt(node);
     case "BlockStmt": return visitor.visitBlockStmt(node);
     case "BreakStmt": return visitor.visitBreakStmt(node);
+    case "ContinueStmt": return visitor.visitContinueStmt(node);
     default: return visitExpr(visitor, node);
   }
 }
@@ -248,4 +251,5 @@ export class RecursiveVisitor implements AstVisitor {
   }
 
   visitBreakStmt(_node: BreakStmt): void {}
+  visitContinueStmt(_node: ContinueStmt): void {}
 }

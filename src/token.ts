@@ -38,9 +38,11 @@ export enum TokenType {
   Arrow = "arrow", // ->
 
   // Keywords
+  As = "as",
   Break = "break",
   Class = "class",
   Construct = "construct",
+  Continue = "continue",
   Else = "else",
   False = "false",
   For = "for",
@@ -71,9 +73,11 @@ export enum TokenType {
 }
 
 export const KEYWORDS = new Map<string, TokenType>([
+  ["as", TokenType.As],
   ["break", TokenType.Break],
   ["class", TokenType.Class],
   ["construct", TokenType.Construct],
+  ["continue", TokenType.Continue],
   ["else", TokenType.Else],
   ["false", TokenType.False],
   ["for", TokenType.For],

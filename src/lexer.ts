@@ -222,7 +222,7 @@ export class Lexer {
     while (this.matchFn(isAlphaNumeric)) {}
 
     const text = this.source.substring(this.start, this.current - this.start);
-    const type = KEYWORDS[text] ?? TokenType.Name;
+    const type = KEYWORDS.get(text) ?? TokenType.Name;
     return makeToken(this.source, type, this.start, this.current - this.start);
   }
 

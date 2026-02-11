@@ -3,27 +3,25 @@ import { Chars } from "./chars.js";
 export class SourceFile {
   readonly path: string;
   private readonly str: string;
-  private readonly bytes: Uint8Array;
   private lines: number[] | null = null;
 
   constructor(path: string, source: string) {
     this.path = path;
     this.str = source;
-    this.bytes = new TextEncoder().encode(source);
   }
 
   byteAt(index: number): number {
-    return this.bytes[index]!;
+    return this.str.charCodeAt(index);
   }
 
   get count(): number {
-    return this.bytes.length;
+    return this.str.length;
   }
 
   columnAt(offset: number): number {
     let column = 1;
     for (let i = offset - 1; i >= 0; i--) {
-      if (this.bytes[i] === Chars.lineFeed) break;
+      if (this.str.charCodeAt(i) === Chars.lineFeed) break;
       column++;
     }
     return column;
@@ -52,8 +50,8 @@ export class SourceFile {
     if (this.lines !== null) return this.lines;
 
     this.lines = [0];
-    for (let i = 0; i < this.bytes.length; i++) {
-      if (this.bytes[i] === Chars.lineFeed) {
+    for (let i = 0; i < this.str.length; i++) {
+      if (this.str.charCodeAt(i) === Chars.lineFeed) {
         this.lines.push(i + 1);
       }
     }

@@ -70,27 +70,27 @@ export enum TokenType {
   Eof = "eof",
 }
 
-export const KEYWORDS: Record<string, TokenType> = {
-  break: TokenType.Break,
-  class: TokenType.Class,
-  construct: TokenType.Construct,
-  else: TokenType.Else,
-  false: TokenType.False,
-  for: TokenType.For,
-  foreign: TokenType.Foreign,
-  if: TokenType.If,
-  import: TokenType.Import,
-  in: TokenType.In,
-  is: TokenType.Is,
-  null: TokenType.Null,
-  return: TokenType.Return,
-  static: TokenType.Static,
-  super: TokenType.Super,
-  this: TokenType.This,
-  true: TokenType.True,
-  var: TokenType.Var,
-  while: TokenType.While,
-};
+export const KEYWORDS = new Map<string, TokenType>([
+  ["break", TokenType.Break],
+  ["class", TokenType.Class],
+  ["construct", TokenType.Construct],
+  ["else", TokenType.Else],
+  ["false", TokenType.False],
+  ["for", TokenType.For],
+  ["foreign", TokenType.Foreign],
+  ["if", TokenType.If],
+  ["import", TokenType.Import],
+  ["in", TokenType.In],
+  ["is", TokenType.Is],
+  ["null", TokenType.Null],
+  ["return", TokenType.Return],
+  ["static", TokenType.Static],
+  ["super", TokenType.Super],
+  ["this", TokenType.This],
+  ["true", TokenType.True],
+  ["var", TokenType.Var],
+  ["while", TokenType.While],
+]);
 
 export interface Token {
   source: SourceFile;

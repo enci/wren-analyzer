@@ -30,9 +30,8 @@ function main() {
   }
 
   if (stat.isDirectory()) {
-    const files = readdirSync(path).filter((f) => f.endsWith(".wren"));
-    for (const file of files) {
-      analyzeFile(join(path, file), json);
+    for (const file of collectWrenFiles(path)) {
+      analyzeFile(file, json);
     }
   } else {
     analyzeFile(path, json);
@@ -51,6 +50,21 @@ function analyzeFile(path: string, json: boolean): void {
     const file = new SourceFile(path, source);
     console.log(formatDiagnosticsPretty(diagnostics, file));
   }
+}
+
+function collectWrenFiles(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const s = statSync(full);
+    if (s.isDirectory()) {
+      files.push(...collectWrenFiles(full));
+    } else if (entry.endsWith(".wren")) {
+      files.push(full);
+    }
+  }
+  files.sort();
+  return files;
 }
 
 main();

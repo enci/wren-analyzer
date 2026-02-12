@@ -22,6 +22,18 @@ export type {
   TypeAnnotation,
   Parameter,
   Node,
+  VarStmt,
+  ForStmt,
+  BlockStmt,
+  IfStmt,
+  WhileStmt,
+  CallExpr,
+  NumExpr,
+  StringExpr,
+  BoolExpr,
+  NullExpr,
+  ListExpr,
+  MapExpr,
 } from "./ast.js";
 
 export { RecursiveVisitor, visitExpr, visitStmt } from "./visitor.js";

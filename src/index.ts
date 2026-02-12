@@ -40,16 +40,6 @@ export interface AnalysisResult {
   diagnostics: Diagnostic[];
 }
 
-/** Lightweight parse: lexer + parser only (no resolver/type-checker). */
-export function parseOnly(source: string, path = "<input>"): AnalysisResult {
-  const file = new SourceFile(path, source);
-  const lexer = new Lexer(file);
-  const parser = new Parser(lexer);
-  const module = parser.parseModule();
-
-  return { module, diagnostics: [...parser.diagnostics] };
-}
-
 /** Full analysis: lexer + parser + resolver + type-checker. */
 export function analyze(source: string, path = "<input>"): AnalysisResult {
   const file = new SourceFile(path, source);

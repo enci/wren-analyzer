@@ -170,9 +170,12 @@ export interface VarStmt {
 
 export interface ClassStmt {
   kind: "ClassStmt";
+  classKeyword: Token;
   foreignKeyword: Token | null;
   name: Token;
   superclass: Token | null;
+  leftBrace: Token;
+  rightBrace: Token;
   methods: Method[];
 }
 
@@ -245,7 +248,9 @@ export interface Method {
   staticKeyword: Token | null;
   constructKeyword: Token | null;
   name: Token;
+  subscriptParameters: Parameter[] | null; // [index] params for subscript operators
   parameters: Parameter[] | null;
+  isSetter: boolean;
   returnType: TypeAnnotation | null;
   body: Body | null;
 }

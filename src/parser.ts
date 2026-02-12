@@ -139,6 +139,7 @@ export class Parser {
   }
 
   private finishClass(foreignKeyword: Token | null): ClassStmt {
+    const classKeyword = this.previous; // 'class' keyword
     const name = this.consume(TokenType.Name, "Expect class name.");
 
     let superclass: Token | null = null;
@@ -148,6 +149,7 @@ export class Parser {
 
     const methods: Method[] = [];
     this.consume(TokenType.LeftBrace, "Expect '{' after class name.");
+    const leftBrace = this.previous;
     this.ignoreLine();
 
     while (!this.match(TokenType.RightBrace) && this.peek() !== TokenType.Eof) {
@@ -155,12 +157,16 @@ export class Parser {
       if (this.match(TokenType.RightBrace)) break;
       this.consumeLine("Expect newline after definition in class.");
     }
+    const rightBrace = this.previous;
 
     return {
       kind: "ClassStmt",
+      classKeyword,
       foreignKeyword,
       name,
       superclass,
+      leftBrace,
+      rightBrace,
       methods,
     };
   }
@@ -182,11 +188,14 @@ export class Parser {
     }
 
     let parameters: Parameter[] | null = null;
+    let subscriptParameters: Parameter[] | null = null;
+    let isSetter = false;
     let allowParameters = false;
 
     if (this.match(TokenType.LeftBracket)) {
       // Subscript operator
-      parameters = this.parameterList();
+      subscriptParameters = this.parameterList();
+      parameters = subscriptParameters;
       this.consume(TokenType.RightBracket, "Expect ']' after parameters.");
       allowParameters = false;
     } else if (this.matchAny(INFIX_OPERATORS)) {
@@ -212,8 +221,9 @@ export class Parser {
       }
     }
 
-    // Setter: `name=(value)`
+    // Setter: `name=(value)` or `[index]=(value)`
     if (this.match(TokenType.Equal)) {
+      isSetter = true;
       this.consume(TokenType.LeftParen, "Expect '(' after '=' in setter.");
       parameters = this.parameterList();
       this.consume(TokenType.RightParen, "Expect ')' after setter parameter.");
@@ -234,7 +244,9 @@ export class Parser {
       staticKeyword,
       constructKeyword,
       name,
+      subscriptParameters,
       parameters,
+      isSetter,
       returnType,
       body,
     };

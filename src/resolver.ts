@@ -14,6 +14,7 @@ import type { Diagnostic } from "./types.js";
 
 export class Resolver extends RecursiveVisitor {
   private scope: Scope;
+  private hasBareImport = false;
   readonly diagnostics: Diagnostic[];
 
   constructor(diagnostics: Diagnostic[]) {
@@ -28,7 +29,11 @@ export class Resolver extends RecursiveVisitor {
 
   override visitModule(node: Module): void {
     super.visitModule(node);
-    this.scope.checkForwardReferences();
+    // When bare imports exist (import "module" without `for`), skip forward
+    // reference checks — the imported module may define those names.
+    if (!this.hasBareImport) {
+      this.scope.checkForwardReferences();
+    }
   }
 
   override visitBody(node: Body): void {
@@ -83,6 +88,8 @@ export class Resolver extends RecursiveVisitor {
       for (const variable of node.variables) {
         this.scope.declare(variable);
       }
+    } else {
+      this.hasBareImport = true;
     }
     super.visitImportStmt(node);
   }

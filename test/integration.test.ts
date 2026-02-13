@@ -237,6 +237,13 @@ describe("Integration tests with Wren fixtures", () => {
     });
   });
 
+  describe("bare_import.wren", () => {
+    it("produces no errors for PascalCase names with bare import", () => {
+      const { errors } = analyzeFixture("bare_import.wren");
+      expect(errors).toHaveLength(0);
+    });
+  });
+
   describe("error fixtures", () => {
     it("missing_type_after_colon.wren produces parse errors", () => {
       const { errors } = analyzeFixture("missing_type_after_colon.wren");

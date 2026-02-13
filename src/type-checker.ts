@@ -8,6 +8,7 @@ import type {
   ReturnStmt,
   AssignmentExpr,
   CallExpr,
+  ClassStmt,
   TypeAnnotation,
 } from "./ast.js";
 import { RecursiveVisitor, visitExpr, visitStmt } from "./visitor.js";
@@ -15,28 +16,59 @@ import type { Diagnostic } from "./types.js";
 import { DiagnosticSeverity } from "./types.js";
 
 // Type environment: a stack of scopes mapping variable names to type names.
+// Tracks both explicitly declared types (annotations) and inferred types separately.
+// Assignment checks only use declared types; method-existence checks use both.
 class TypeEnvironment {
-  private scopes: Map<string, string>[] = [new Map()];
+  private declaredScopes: Map<string, string>[] = [new Map()];
+  private inferredScopes: Map<string, string>[] = [new Map()];
 
   push(): void {
-    this.scopes.push(new Map());
+    this.declaredScopes.push(new Map());
+    this.inferredScopes.push(new Map());
   }
 
   pop(): void {
-    this.scopes.pop();
+    this.declaredScopes.pop();
+    this.inferredScopes.pop();
   }
 
-  set(name: string, typeName: string): void {
-    this.scopes[this.scopes.length - 1]!.set(name, typeName);
+  /** Register an explicitly annotated type (used for assignment checking). */
+  setDeclared(name: string, typeName: string): void {
+    this.declaredScopes[this.declaredScopes.length - 1]!.set(name, typeName);
+    // Also set in inferred so method-existence can find it
+    this.inferredScopes[this.inferredScopes.length - 1]!.set(name, typeName);
   }
 
-  get(name: string): string | null {
-    for (let i = this.scopes.length - 1; i >= 0; i--) {
-      const scope = this.scopes[i]!;
+  /** Register an inferred type (NOT used for assignment checking). */
+  setInferred(name: string, typeName: string): void {
+    this.inferredScopes[this.inferredScopes.length - 1]!.set(name, typeName);
+  }
+
+  /** Get explicitly declared type (for assignment checking). */
+  getDeclared(name: string): string | null {
+    for (let i = this.declaredScopes.length - 1; i >= 0; i--) {
+      const scope = this.declaredScopes[i]!;
       if (scope.has(name)) return scope.get(name)!;
     }
     return null;
   }
+
+  /** Get type (declared or inferred — for method-existence checking). */
+  get(name: string): string | null {
+    for (let i = this.inferredScopes.length - 1; i >= 0; i--) {
+      const scope = this.inferredScopes[i]!;
+      if (scope.has(name)) return scope.get(name)!;
+    }
+    return null;
+  }
+}
+
+/**
+ * Registry of known class methods. Maps class name → method info.
+ */
+interface ClassInfo {
+  instanceMethods: Set<string>;
+  staticMethods: Set<string>;
 }
 
 // Infer the type of a literal expression. Returns null for complex expressions.
@@ -61,9 +93,148 @@ function inferType(expr: Expr): string | null {
   }
 }
 
+/**
+ * Infer the type of an expression using both literal analysis and environment lookup.
+ */
+function inferExprType(expr: Expr, env: TypeEnvironment): string | null {
+  // Literal types
+  const literal = inferType(expr);
+  if (literal !== null) return literal;
+
+  // Variable reference: look up in environment
+  // In Wren, a bare identifier `foo` is parsed as CallExpr { receiver: null, name: "foo", arguments: null }
+  if (expr.kind === "CallExpr" && expr.receiver === null && expr.arguments === null) {
+    return env.get(expr.name.text);
+  }
+
+  // Constructor call: Foo.new() → type is Foo
+  if (expr.kind === "CallExpr" && expr.receiver !== null) {
+    if (expr.name.text === "new") {
+      const receiverName = getReceiverClassName(expr.receiver);
+      if (receiverName) return receiverName;
+    }
+  }
+
+  // Grouping: (expr)
+  if (expr.kind === "GroupingExpr") {
+    return inferExprType(expr.expression, env);
+  }
+
+  return null;
+}
+
+/**
+ * Extract the class name from a receiver expression (for Foo.new() patterns).
+ * In Wren, `Foo` alone is CallExpr { receiver: null, name: "Foo", arguments: null }
+ */
+function getReceiverClassName(expr: Expr): string | null {
+  if (expr.kind === "CallExpr" && expr.receiver === null && expr.arguments === null) {
+    if (/^[A-Z]/.test(expr.name.text)) {
+      return expr.name.text;
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a class registry from all ClassStmt nodes in the module.
+ */
+function buildClassRegistry(module: Module): Map<string, ClassInfo> {
+  const registry = new Map<string, ClassInfo>();
+
+  for (const stmt of module.statements) {
+    if (stmt.kind === "ClassStmt") {
+      registerClass(registry, stmt);
+    }
+  }
+
+  return registry;
+}
+
+function registerClass(registry: Map<string, ClassInfo>, cls: ClassStmt): void {
+  const instanceMethods = new Set<string>();
+  const staticMethods = new Set<string>();
+
+  for (const method of cls.methods) {
+    const name = method.name.text;
+    if (method.staticKeyword !== null || method.constructKeyword !== null) {
+      staticMethods.add(name);
+    } else {
+      instanceMethods.add(name);
+    }
+
+    // Setter variant: name= (registered in addition to the getter)
+    if (method.isSetter) {
+      const setterName = name + "=";
+      if (method.staticKeyword !== null) {
+        staticMethods.add(setterName);
+      } else {
+        instanceMethods.add(setterName);
+      }
+    }
+  }
+
+  registry.set(cls.name.text, { instanceMethods, staticMethods });
+}
+
+// Core classes always available in Wren — their methods are known.
+// We only list commonly called methods to avoid false positives on operators.
+const CORE_INSTANCE_METHODS = new Map<string, Set<string>>([
+  ["Object", new Set(["toString", "type", "is"])],
+  ["Bool", new Set(["toString"])],
+  ["Null", new Set(["toString"])],
+  ["Num", new Set([
+    "abs", "acos", "asin", "atan", "cbrt", "ceil", "cos", "floor",
+    "round", "sin", "sqrt", "tan", "log", "log2", "exp", "pow",
+    "fraction", "truncate", "sign", "isInteger", "isNan", "isInfinity",
+    "min", "max", "clamp", "toString",
+  ])],
+  ["String", new Set([
+    "contains", "count", "endsWith", "indexOf", "replace", "split",
+    "startsWith", "trim", "trimEnd", "trimStart", "bytes", "codePoints",
+    "toString", "iterate", "iteratorValue",
+  ])],
+  ["List", new Set([
+    "add", "addAll", "clear", "count", "indexOf", "insert", "iterate",
+    "iteratorValue", "remove", "removeAt", "sort", "swap", "toString",
+  ])],
+  ["Map", new Set([
+    "clear", "containsKey", "count", "keys", "values", "iterate",
+    "remove", "toString",
+  ])],
+  ["Range", new Set([
+    "from", "to", "min", "max", "isInclusive", "iterate",
+    "iteratorValue", "toString",
+  ])],
+  ["Fiber", new Set([
+    "call", "error", "isDone", "transfer", "transferError", "try",
+  ])],
+  ["Fn", new Set(["arity", "call", "toString"])],
+  ["Sequence", new Set([
+    "all", "any", "contains", "count", "each", "isEmpty", "map",
+    "skip", "take", "where", "reduce", "join", "toList", "toString",
+  ])],
+]);
+
+const CORE_STATIC_METHODS = new Map<string, Set<string>>([
+  ["Object", new Set(["same"])],
+  ["Num", new Set([
+    "fromString", "infinity", "nan", "pi", "tau",
+    "largest", "smallest", "maxSafeInteger", "minSafeInteger",
+  ])],
+  ["String", new Set(["fromCodePoint", "fromByte"])],
+  ["List", new Set(["new", "filled"])],
+  ["Map", new Set(["new"])],
+  ["Fiber", new Set(["new", "abort", "current", "suspend", "yield"])],
+  ["Fn", new Set(["new"])],
+  ["System", new Set(["print", "printAll", "write", "writeAll", "clock", "gc"])],
+]);
+
 export class TypeChecker extends RecursiveVisitor {
   private env = new TypeEnvironment();
   private currentReturnType: string | null = null;
+  private currentClassName: string | null = null;
+  private classRegistry = new Map<string, ClassInfo>();
   readonly diagnostics: Diagnostic[];
 
   constructor(diagnostics: Diagnostic[]) {
@@ -72,15 +243,32 @@ export class TypeChecker extends RecursiveVisitor {
   }
 
   check(node: Module): void {
+    // Pre-scan: build class registry from all ClassStmt in module
+    this.classRegistry = buildClassRegistry(node);
     this.visitModule(node);
+  }
+
+  // --- Class tracking ---
+
+  override visitClassStmt(node: ClassStmt): void {
+    const previousClassName = this.currentClassName;
+    this.currentClassName = node.name.text;
+    super.visitClassStmt(node);
+    this.currentClassName = previousClassName;
   }
 
   // --- Variable declarations ---
 
   override visitVarStmt(node: VarStmt): void {
-    // Register type annotation
+    // Register type annotation (explicit → used for assignment checks)
     if (node.typeAnnotation !== null) {
-      this.env.set(node.name.text, node.typeAnnotation.name.text);
+      this.env.setDeclared(node.name.text, node.typeAnnotation.name.text);
+    } else if (node.initializer !== null) {
+      // Infer type from initializer (inferred → only for method-existence checks)
+      const initType = inferExprType(node.initializer, this.env);
+      if (initType !== null) {
+        this.env.setInferred(node.name.text, initType);
+      }
     }
 
     // Check initializer against annotation
@@ -116,7 +304,7 @@ export class TypeChecker extends RecursiveVisitor {
   override visitForStmt(node: ForStmt): void {
     if (node.typeAnnotation !== null) {
       this.env.push();
-      this.env.set(node.variable.text, node.typeAnnotation.name.text);
+      this.env.setDeclared(node.variable.text, node.typeAnnotation.name.text);
       visitExpr(this, node.iterator);
       visitStmt(this, node.body);
       this.env.pop();
@@ -131,7 +319,7 @@ export class TypeChecker extends RecursiveVisitor {
     // Check if target is a variable with a type annotation
     if (node.target.kind === "CallExpr" && node.target.receiver === null) {
       const varName = node.target.name.text;
-      const declaredType = this.env.get(varName);
+      const declaredType = this.env.getDeclared(varName);
       if (declaredType !== null) {
         const valueType = inferType(node.value);
         if (valueType !== null && valueType !== declaredType) {
@@ -147,6 +335,123 @@ export class TypeChecker extends RecursiveVisitor {
     super.visitAssignmentExpr(node);
   }
 
+  // --- Method calls: check method existence ---
+
+  override visitCallExpr(node: CallExpr): void {
+    if (node.receiver !== null) {
+      this.checkMethodExists(node);
+    }
+
+    // Continue visiting children
+    super.visitCallExpr(node);
+  }
+
+  private checkMethodExists(node: CallExpr): void {
+    if (node.receiver === null) return;
+
+    const methodName = node.name.text;
+
+    // Determine if this is a static call (PascalCase receiver) or instance call
+    const receiverClassName = getReceiverClassName(node.receiver);
+
+    if (receiverClassName) {
+      // Static call: Foo.bar()
+      this.checkStaticMethodExists(receiverClassName, methodName, node);
+    } else {
+      // Instance call: resolve receiver type
+      const receiverType = this.inferReceiverType(node.receiver);
+      if (receiverType) {
+        this.checkInstanceMethodExists(receiverType, methodName, node);
+      }
+    }
+  }
+
+  private checkStaticMethodExists(className: string, methodName: string, node: CallExpr): void {
+    // Check user-defined classes
+    const userClass = this.classRegistry.get(className);
+    if (userClass) {
+      if (!userClass.staticMethods.has(methodName)) {
+        this.warn(
+          `Class '${className}' does not define a static method '${methodName}'.`,
+          node.name,
+          "unknown-method",
+        );
+      }
+      return;
+    }
+
+    // Check core classes
+    const coreMethods = CORE_STATIC_METHODS.get(className);
+    if (coreMethods) {
+      if (!coreMethods.has(methodName)) {
+        this.warn(
+          `Class '${className}' does not define a static method '${methodName}'.`,
+          node.name,
+          "unknown-method",
+        );
+      }
+      return;
+    }
+
+    // Unknown class — could be from an import, don't warn
+  }
+
+  private checkInstanceMethodExists(typeName: string, methodName: string, node: CallExpr): void {
+    // Check user-defined classes
+    const userClass = this.classRegistry.get(typeName);
+    if (userClass) {
+      if (!userClass.instanceMethods.has(methodName)) {
+        // Also check Object's universal methods (toString, type, is)
+        const objectMethods = CORE_INSTANCE_METHODS.get("Object");
+        if (!objectMethods || !objectMethods.has(methodName)) {
+          this.warn(
+            `Type '${typeName}' does not define an instance method '${methodName}'.`,
+            node.name,
+            "unknown-method",
+          );
+        }
+      }
+      return;
+    }
+
+    // Check core classes
+    const coreMethods = CORE_INSTANCE_METHODS.get(typeName);
+    if (coreMethods) {
+      if (!coreMethods.has(methodName)) {
+        // Also check Object's universal methods
+        const objectMethods = CORE_INSTANCE_METHODS.get("Object");
+        if (!objectMethods || !objectMethods.has(methodName)) {
+          this.warn(
+            `Type '${typeName}' does not define an instance method '${methodName}'.`,
+            node.name,
+            "unknown-method",
+          );
+        }
+      }
+      return;
+    }
+
+    // Unknown type — could be from an import, don't warn
+  }
+
+  /**
+   * Infer the type of a receiver expression.
+   */
+  private inferReceiverType(expr: Expr): string | null {
+    // `this` → current class
+    if (expr.kind === "ThisExpr") {
+      return this.currentClassName;
+    }
+
+    // Variable reference: CallExpr { receiver: null, name: "foo", arguments: null }
+    if (expr.kind === "CallExpr" && expr.receiver === null && expr.arguments === null) {
+      return this.env.get(expr.name.text);
+    }
+
+    // Literal types
+    return inferType(expr);
+  }
+
   // --- Method return types ---
 
   override visitMethod(node: Method): void {
@@ -159,7 +464,7 @@ export class TypeChecker extends RecursiveVisitor {
     if (node.parameters !== null) {
       for (const param of node.parameters) {
         if (param.typeAnnotation !== null) {
-          this.env.set(param.name.text, param.typeAnnotation.name.text);
+          this.env.setDeclared(param.name.text, param.typeAnnotation.name.text);
         }
       }
     }
@@ -186,7 +491,7 @@ export class TypeChecker extends RecursiveVisitor {
     if (node.parameters !== null) {
       for (const param of node.parameters) {
         if (param.typeAnnotation !== null) {
-          this.env.set(param.name.text, param.typeAnnotation.name.text);
+          this.env.setDeclared(param.name.text, param.typeAnnotation.name.text);
         }
       }
     }

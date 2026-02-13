@@ -198,4 +198,244 @@ describe("TypeChecker", () => {
       expect(w[0]).toContain("String");
     });
   });
+
+  describe("method existence - static calls", () => {
+    it("warns on unknown static method on user class", () => {
+      const w = warnings(`
+class Foo {
+  construct new() {}
+}
+Foo.bar()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Foo");
+      expect(w[0]).toContain("bar");
+      expect(w[0]).toContain("static");
+    });
+
+    it("no warning on valid static method", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  static bar() { "hello" }
+}
+Foo.bar()
+`)).toEqual([]);
+    });
+
+    it("no warning on valid constructor", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+}
+Foo.new()
+`)).toEqual([]);
+    });
+
+    it("warns on unknown static method on core class", () => {
+      const w = warnings("System.foo()");
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("System");
+      expect(w[0]).toContain("foo");
+    });
+
+    it("no warning on valid core static method", () => {
+      expect(warnings('System.print("hello")')).toEqual([]);
+    });
+
+    it("no warning on unknown class (could be from import)", () => {
+      expect(warnings("SomeExternalClass.doStuff()")).toEqual([]);
+    });
+  });
+
+  describe("method existence - instance calls with type annotations", () => {
+    it("warns on unknown instance method with type annotation", () => {
+      const w = warnings(`
+class Foo {
+  construct new() {}
+  bar() { "hello" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.baz()
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Foo");
+      expect(w[0]).toContain("baz");
+    });
+
+    it("no warning on valid instance method", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  bar() { "hello" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.bar()
+  }
+}
+`)).toEqual([]);
+    });
+
+    it("no warning for Object methods on user class", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.toString
+  }
+}
+`)).toEqual([]);
+    });
+
+    it("warns on unknown method on inferred Num type", () => {
+      const w = warnings(`
+class Main {
+  construct new() {
+    var n: Num = 42
+    n.foo()
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Num");
+      expect(w[0]).toContain("foo");
+    });
+
+    it("no warning on valid Num method", () => {
+      expect(warnings(`
+class Main {
+  construct new() {
+    var n: Num = 42
+    n.abs
+  }
+}
+`)).toEqual([]);
+    });
+  });
+
+  describe("method existence - this calls", () => {
+    it("warns on unknown method via this", () => {
+      const w = warnings(`
+class Foo {
+  construct new() {}
+  bar() {
+    this.baz()
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Foo");
+      expect(w[0]).toContain("baz");
+    });
+
+    it("no warning on valid this call", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  bar() { "hello" }
+  baz() {
+    this.bar()
+  }
+}
+`)).toEqual([]);
+    });
+  });
+
+  describe("method existence - inferred types from initializers", () => {
+    it("warns on unknown method with inferred constructor type", () => {
+      const w = warnings(`
+class Foo {
+  construct new() {}
+  bar() { "hello" }
+}
+class Main {
+  construct new() {
+    var f = Foo.new()
+    f.baz()
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Foo");
+      expect(w[0]).toContain("baz");
+    });
+
+    it("warns on unknown method with inferred literal type", () => {
+      const w = warnings(`
+class Main {
+  construct new() {
+    var s = "hello"
+    s.foo()
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("String");
+      expect(w[0]).toContain("foo");
+    });
+
+    it("no warning on valid method with inferred literal type", () => {
+      expect(warnings(`
+class Main {
+  construct new() {
+    var s = "hello"
+    s.contains("ell")
+  }
+}
+`)).toEqual([]);
+    });
+
+    it("no warning when receiver type is unknown", () => {
+      expect(warnings(`
+class Main {
+  construct new() {
+    var x = someFunction()
+    x.anything()
+  }
+}
+`)).toEqual([]);
+    });
+  });
+
+  describe("method existence - parameter types", () => {
+    it("warns on unknown method on typed parameter", () => {
+      const w = warnings(`
+class Foo {
+  construct new() {}
+  bar() { "hello" }
+}
+class Main {
+  doSomething(f: Foo) {
+    f.baz()
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Foo");
+      expect(w[0]).toContain("baz");
+    });
+
+    it("no warning on valid method on typed parameter", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  bar() { "hello" }
+}
+class Main {
+  doSomething(f: Foo) {
+    f.bar()
+  }
+}
+`)).toEqual([]);
+    });
+  });
 });

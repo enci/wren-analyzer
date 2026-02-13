@@ -380,7 +380,9 @@ export class TypeChecker extends RecursiveVisitor {
     } else {
       // Instance call: resolve receiver type
       const receiverType = this.inferReceiverType(node.receiver);
-      if (receiverType) {
+      // Skip Null — variables initialized to null (var f = null) are almost
+      // always reassigned later (e.g. to a Fn), so Null is too weak to warn on.
+      if (receiverType && receiverType !== "Null") {
         this.checkInstanceMethodExists(receiverType, methodName, node);
       }
     }

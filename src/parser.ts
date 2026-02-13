@@ -218,6 +218,10 @@ export class Parser {
         parameters = this.parameterList();
         this.ignoreLine();
         this.consume(TokenType.RightParen, "Expect ')' after parameters.");
+      } else {
+        // Distinguish zero-arg method `foo()` from getter `foo` —
+        // getter has parameters: null, zero-arg method has parameters: [].
+        parameters = [];
       }
     }
 

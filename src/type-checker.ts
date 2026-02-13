@@ -64,11 +64,46 @@ class TypeEnvironment {
 }
 
 /**
+ * A method set that tracks arities per method name.
+ * In Wren, `foo` (getter), `foo()` (zero-arg), and `foo(_)` (one-arg)
+ * are distinct method signatures.
+ * Arity -1 represents a getter (no parentheses).
+ */
+class MethodSet {
+  private methods = new Map<string, Set<number>>();
+
+  add(name: string, arity: number): void {
+    let arities = this.methods.get(name);
+    if (!arities) {
+      arities = new Set();
+      this.methods.set(name, arities);
+    }
+    arities.add(arity);
+  }
+
+  /** Check if a method with this name exists at any arity. */
+  has(name: string): boolean {
+    return this.methods.has(name);
+  }
+
+  /** Check if a method with this exact name and arity exists. */
+  hasArity(name: string, arity: number): boolean {
+    const arities = this.methods.get(name);
+    return arities !== undefined && arities.has(arity);
+  }
+
+  /** Get the set of known arities for a method name. */
+  getArities(name: string): Set<number> | undefined {
+    return this.methods.get(name);
+  }
+}
+
+/**
  * Registry of known class methods. Maps class name → method info.
  */
 interface ClassInfo {
-  instanceMethods: Set<string>;
-  staticMethods: Set<string>;
+  instanceMethods: MethodSet;
+  staticMethods: MethodSet;
   superclass: string | null;
 }
 
@@ -164,24 +199,30 @@ function registerClass(
   registry: Map<string, ClassInfo>,
   cls: ClassStmt,
 ): void {
-  const instanceMethods = new Set<string>();
-  const staticMethods = new Set<string>();
+  const instanceMethods = new MethodSet();
+  const staticMethods = new MethodSet();
 
   for (const method of cls.methods) {
     const name = method.name.text;
+    // Arity: -1 for getters (no parens), otherwise parameter count
+    const arity = method.parameters === null ? -1 : method.parameters.length;
     if (method.staticKeyword !== null || method.constructKeyword !== null) {
-      staticMethods.add(name);
+      staticMethods.add(name, arity);
     } else {
-      instanceMethods.add(name);
+      instanceMethods.add(name, arity);
     }
 
-    // Setter variant: name= (registered in addition to the getter)
+    // Setter variant: name= (registered in addition to the base name).
+    // Also register the base name as a getter (arity -1) since setter syntax
+    // `foo.bar = value` is parsed as a getter access on the LHS.
     if (method.isSetter) {
       const setterName = name + "=";
       if (method.staticKeyword !== null) {
-        staticMethods.add(setterName);
+        staticMethods.add(setterName, arity);
+        staticMethods.add(name, -1);
       } else {
-        instanceMethods.add(setterName);
+        instanceMethods.add(setterName, arity);
+        instanceMethods.add(name, -1);
       }
     }
   }
@@ -378,20 +419,22 @@ export class TypeChecker extends RecursiveVisitor {
     if (node.receiver === null) return;
 
     const methodName = node.name.text;
+    // Arity: -1 for getter access (no parens), otherwise argument count
+    const arity = node.arguments === null ? -1 : node.arguments.length;
 
     // Determine if this is a static call (PascalCase receiver) or instance call
     const receiverClassName = getReceiverClassName(node.receiver);
 
     if (receiverClassName) {
       // Static call: Foo.bar()
-      this.checkStaticMethodExists(receiverClassName, methodName, node);
+      this.checkStaticMethodExists(receiverClassName, methodName, arity, node);
     } else {
       // Instance call: resolve receiver type
       const receiverType = this.inferReceiverType(node.receiver);
       // Skip Null — variables initialized to null (var f = null) are almost
       // always reassigned later (e.g. to a Fn), so Null is too weak to warn on.
       if (receiverType && receiverType !== "Null") {
-        this.checkInstanceMethodExists(receiverType, methodName, node);
+        this.checkInstanceMethodExists(receiverType, methodName, arity, node);
       }
     }
   }
@@ -399,6 +442,7 @@ export class TypeChecker extends RecursiveVisitor {
   private checkStaticMethodExists(
     className: string,
     methodName: string,
+    arity: number,
     node: CallExpr,
   ): void {
     // `attributes` is a universal static method available on every class.
@@ -412,6 +456,13 @@ export class TypeChecker extends RecursiveVisitor {
           `Class '${className}' does not define a static method '${methodName}'.`,
           node.name,
           "unknown-method",
+        );
+      } else if (!userClass.staticMethods.hasArity(methodName, arity)) {
+        const arityDesc = arity === -1 ? "a getter" : `a method with ${arity} argument${arity === 1 ? "" : "s"}`;
+        this.warn(
+          `Class '${className}' defines '${methodName}' but not as ${arityDesc}.`,
+          node.name,
+          "wrong-arity",
         );
       }
       return;
@@ -436,6 +487,7 @@ export class TypeChecker extends RecursiveVisitor {
   private checkInstanceMethodExists(
     typeName: string,
     methodName: string,
+    arity: number,
     node: CallExpr,
   ): void {
     // Walk the superclass chain for user-defined classes.
@@ -444,6 +496,8 @@ export class TypeChecker extends RecursiveVisitor {
     const visited = new Set<string>(); // guard against cycles
 
     let knownClass = false;
+    // Track whether we found the name at any arity (for arity mismatch messages)
+    let foundName = false;
 
     while (current !== null) {
       if (visited.has(current)) break;
@@ -453,7 +507,8 @@ export class TypeChecker extends RecursiveVisitor {
       const userClass = this.classRegistry.get(current);
       if (userClass) {
         knownClass = true;
-        if (userClass.instanceMethods.has(methodName)) return; // found it
+        if (userClass.instanceMethods.hasArity(methodName, arity)) return; // exact match
+        if (userClass.instanceMethods.has(methodName)) foundName = true;
         // Walk up to the superclass
         current = userClass.superclass;
         continue;
@@ -463,7 +518,7 @@ export class TypeChecker extends RecursiveVisitor {
       const coreMethods = CORE_INSTANCE_METHODS.get(current);
       if (coreMethods) {
         knownClass = true;
-        if (coreMethods.has(methodName)) return; // found it
+        if (coreMethods.has(methodName)) return; // found it (core methods don't track arity)
         // Walk up the core superclass chain (e.g. List → Sequence)
         current = CORE_SUPERCLASS.get(current) ?? null;
         continue;
@@ -481,11 +536,21 @@ export class TypeChecker extends RecursiveVisitor {
     const objectMethods = CORE_INSTANCE_METHODS.get("Object");
     if (objectMethods && objectMethods.has(methodName)) return;
 
-    this.warn(
-      `Type '${typeName}' does not define an instance method '${methodName}'.`,
-      node.name,
-      "unknown-method",
-    );
+    if (foundName) {
+      // The method name exists but not at the called arity
+      const arityDesc = arity === -1 ? "a getter" : `a method with ${arity} argument${arity === 1 ? "" : "s"}`;
+      this.warn(
+        `Type '${typeName}' defines '${methodName}' but not as ${arityDesc}.`,
+        node.name,
+        "wrong-arity",
+      );
+    } else {
+      this.warn(
+        `Type '${typeName}' does not define an instance method '${methodName}'.`,
+        node.name,
+        "unknown-method",
+      );
+    }
   }
 
   /**

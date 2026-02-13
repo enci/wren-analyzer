@@ -498,4 +498,171 @@ class Main {
       expect(w[0]).toContain("bogus");
     });
   });
+
+  describe("method existence - arity checking", () => {
+    it("warns when calling a getter as a method", () => {
+      const w = warnings(`
+class Foo {
+  construct new() {}
+  name { "Foo" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.name()
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Foo");
+      expect(w[0]).toContain("name");
+      expect(w[0]).toContain("0 arguments");
+    });
+
+    it("warns when accessing a method as a getter", () => {
+      const w = warnings(`
+class Foo {
+  construct new() {}
+  greet(name) { "hello" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.greet
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Foo");
+      expect(w[0]).toContain("greet");
+      expect(w[0]).toContain("getter");
+    });
+
+    it("no warning for correct getter access", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  name { "Foo" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.name
+  }
+}
+`)).toEqual([]);
+    });
+
+    it("no warning for correct method call", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  greet(name) { "hello" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.greet("world")
+  }
+}
+`)).toEqual([]);
+    });
+
+    it("no warning for correct zero-arg method call", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  reset() { "done" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.reset()
+  }
+}
+`)).toEqual([]);
+    });
+
+    it("distinguishes getter from zero-arg method", () => {
+      const w = warnings(`
+class Foo {
+  construct new() {}
+  name { "Foo" }
+  reset() { "done" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.name()
+    f.reset
+  }
+}
+`);
+      expect(w).toHaveLength(2);
+      expect(w[0]).toContain("name");
+      expect(w[0]).toContain("0 arguments");
+      expect(w[1]).toContain("reset");
+      expect(w[1]).toContain("getter");
+    });
+
+    it("warns on wrong arity for method call", () => {
+      const w = warnings(`
+class Foo {
+  construct new() {}
+  greet(name) { "hello" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.greet("a", "b")
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Foo");
+      expect(w[0]).toContain("greet");
+      expect(w[0]).toContain("2 arguments");
+    });
+
+    it("no warning when setter exists for getter access on LHS", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  bar=(value) { value }
+}
+var foo = Foo.new()
+foo.bar = "value"
+`)).toEqual([]);
+    });
+
+    it("allows multiple arities for same method name", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  method(a) { "one" }
+  method(a, b) { "two" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.method(1)
+    f.method(1, 2)
+  }
+}
+`)).toEqual([]);
+    });
+
+    it("warns on static arity mismatch", () => {
+      const w = warnings(`
+class Foo {
+  static bar() { "hello" }
+}
+Foo.bar("extra")
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Foo");
+      expect(w[0]).toContain("bar");
+      expect(w[0]).toContain("1 argument");
+    });
+  });
 });

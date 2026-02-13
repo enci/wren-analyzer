@@ -193,7 +193,7 @@ describe("TypeChecker", () => {
 
   describe("string interpolation type", () => {
     it("infers String for interpolation", () => {
-      const w = warnings('var x: Num = "hello %(name)"');
+      const w = warnings('var name = "world"\nvar x: Num = "hello %(name)"');
       expect(w).toHaveLength(1);
       expect(w[0]).toContain("String");
     });

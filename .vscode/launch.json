@@ -8,7 +8,7 @@
       "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
       "args": [
         "cli/main.ts",
-        "${workspaceFolder}/../wren/test/language"
+        "${workspaceFolder}/../../wren/test/language"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
@@ -33,7 +33,7 @@
       "args": [
         "cli/main.ts",
         "--json",
-        "${workspaceFolder}/../wren/test/language"
+        "${workspaceFolder}/../../wren/test/language"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"

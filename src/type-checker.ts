@@ -254,6 +254,13 @@ export class TypeChecker extends RecursiveVisitor {
   }
 
   check(node: Module): void {
+    // Skip type-checking when the source has parse/resolve errors.
+    // The AST is likely malformed and would produce nonsensical warnings.
+    const hasErrors = this.diagnostics.some(
+      (d) => d.severity === DiagnosticSeverity.Error,
+    );
+    if (hasErrors) return;
+
     // Pre-scan: build class registry from all ClassStmt in module
     this.classRegistry = buildClassRegistry(node);
     this.visitModule(node);

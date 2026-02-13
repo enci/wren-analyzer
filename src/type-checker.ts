@@ -229,6 +229,14 @@ const CORE_INSTANCE_METHODS = new Map<string, Set<string>>([
   ])],
 ]);
 
+// Core class inheritance hierarchy (instance methods only — statics are not inherited).
+const CORE_SUPERCLASS = new Map<string, string>([
+  ["List", "Sequence"],
+  ["Map", "Sequence"],
+  ["Range", "Sequence"],
+  ["String", "Sequence"],
+]);
+
 const CORE_STATIC_METHODS = new Map<string, Set<string>>([
   ["Object", new Set(["same"])],
   ["Num", new Set([
@@ -451,11 +459,14 @@ export class TypeChecker extends RecursiveVisitor {
         continue;
       }
 
-      // Check core classes (end of the chain)
+      // Check core classes — walk their hierarchy too
       const coreMethods = CORE_INSTANCE_METHODS.get(current);
       if (coreMethods) {
         knownClass = true;
         if (coreMethods.has(methodName)) return; // found it
+        // Walk up the core superclass chain (e.g. List → Sequence)
+        current = CORE_SUPERCLASS.get(current) ?? null;
+        continue;
       }
 
       // Reached a class we don't know about — stop walking

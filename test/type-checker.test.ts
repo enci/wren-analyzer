@@ -296,7 +296,7 @@ class Main {
 `)).toEqual([]);
     });
 
-    it("warns on unknown method on inferred Num type", () => {
+    it("warns on unknown method on annotated Num type", () => {
       const w = warnings(`
 class Main {
   construct new() {
@@ -436,6 +436,66 @@ class Main {
   }
 }
 `)).toEqual([]);
+    });
+  });
+
+  describe("method existence - getters and properties", () => {
+    it("warns on unknown getter access on user class", () => {
+      const w = warnings(`
+class Foo {
+  construct new() {}
+  name { "Foo" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.nonexistent
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Foo");
+      expect(w[0]).toContain("nonexistent");
+    });
+
+    it("no warning on valid getter access", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  name { "Foo" }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.name
+  }
+}
+`)).toEqual([]);
+    });
+
+    it("no warning on core getter like Num.isInteger", () => {
+      expect(warnings(`
+class Main {
+  construct new() {
+    var n: Num = 42
+    n.isInteger
+  }
+}
+`)).toEqual([]);
+    });
+
+    it("warns on unknown getter on core type", () => {
+      const w = warnings(`
+class Main {
+  construct new() {
+    var n: Num = 42
+    n.bogus
+  }
+}
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Num");
+      expect(w[0]).toContain("bogus");
     });
   });
 });

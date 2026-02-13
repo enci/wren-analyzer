@@ -103,7 +103,11 @@ function inferExprType(expr: Expr, env: TypeEnvironment): string | null {
 
   // Variable reference: look up in environment
   // In Wren, a bare identifier `foo` is parsed as CallExpr { receiver: null, name: "foo", arguments: null }
-  if (expr.kind === "CallExpr" && expr.receiver === null && expr.arguments === null) {
+  if (
+    expr.kind === "CallExpr" &&
+    expr.receiver === null &&
+    expr.arguments === null
+  ) {
     return env.get(expr.name.text);
   }
 
@@ -128,7 +132,11 @@ function inferExprType(expr: Expr, env: TypeEnvironment): string | null {
  * In Wren, `Foo` alone is CallExpr { receiver: null, name: "Foo", arguments: null }
  */
 function getReceiverClassName(expr: Expr): string | null {
-  if (expr.kind === "CallExpr" && expr.receiver === null && expr.arguments === null) {
+  if (
+    expr.kind === "CallExpr" &&
+    expr.receiver === null &&
+    expr.arguments === null
+  ) {
     if (/^[A-Z]/.test(expr.name.text)) {
       return expr.name.text;
     }
@@ -151,7 +159,10 @@ function buildClassRegistry(module: Module): Map<string, ClassInfo> {
   return registry;
 }
 
-function registerClass(registry: Map<string, ClassInfo>, cls: ClassStmt): void {
+function registerClass(
+  registry: Map<string, ClassInfo>,
+  cls: ClassStmt,
+): void {
   const instanceMethods = new Set<string>();
   const staticMethods = new Set<string>();
 
@@ -366,7 +377,11 @@ export class TypeChecker extends RecursiveVisitor {
     }
   }
 
-  private checkStaticMethodExists(className: string, methodName: string, node: CallExpr): void {
+  private checkStaticMethodExists(
+    className: string,
+    methodName: string,
+    node: CallExpr,
+  ): void {
     // Check user-defined classes
     const userClass = this.classRegistry.get(className);
     if (userClass) {
@@ -396,7 +411,11 @@ export class TypeChecker extends RecursiveVisitor {
     // Unknown class — could be from an import, don't warn
   }
 
-  private checkInstanceMethodExists(typeName: string, methodName: string, node: CallExpr): void {
+  private checkInstanceMethodExists(
+    typeName: string,
+    methodName: string,
+    node: CallExpr,
+  ): void {
     // Check user-defined classes
     const userClass = this.classRegistry.get(typeName);
     if (userClass) {
@@ -444,7 +463,11 @@ export class TypeChecker extends RecursiveVisitor {
     }
 
     // Variable reference: CallExpr { receiver: null, name: "foo", arguments: null }
-    if (expr.kind === "CallExpr" && expr.receiver === null && expr.arguments === null) {
+    if (
+      expr.kind === "CallExpr" &&
+      expr.receiver === null &&
+      expr.arguments === null
+    ) {
       return this.env.get(expr.name.text);
     }
 

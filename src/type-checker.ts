@@ -69,6 +69,7 @@ class TypeEnvironment {
 interface ClassInfo {
   instanceMethods: Set<string>;
   staticMethods: Set<string>;
+  superclass: string | null;
 }
 
 // Infer the type of a literal expression. Returns null for complex expressions.
@@ -185,7 +186,8 @@ function registerClass(
     }
   }
 
-  registry.set(cls.name.text, { instanceMethods, staticMethods });
+  const superclass = cls.superclass ? cls.superclass.text : null;
+  registry.set(cls.name.text, { instanceMethods, staticMethods, superclass });
 }
 
 // Core classes always available in Wren — their methods are known.
@@ -426,41 +428,51 @@ export class TypeChecker extends RecursiveVisitor {
     methodName: string,
     node: CallExpr,
   ): void {
-    // Check user-defined classes
-    const userClass = this.classRegistry.get(typeName);
-    if (userClass) {
-      if (!userClass.instanceMethods.has(methodName)) {
-        // Also check Object's universal methods (toString, type, is)
-        const objectMethods = CORE_INSTANCE_METHODS.get("Object");
-        if (!objectMethods || !objectMethods.has(methodName)) {
-          this.warn(
-            `Type '${typeName}' does not define an instance method '${methodName}'.`,
-            node.name,
-            "unknown-method",
-          );
-        }
-      }
-      return;
-    }
+    // Walk the superclass chain for user-defined classes.
+    // Instance methods are inherited, so Bar inherits Foo's methods.
+    let current: string | null = typeName;
+    const visited = new Set<string>(); // guard against cycles
 
-    // Check core classes
-    const coreMethods = CORE_INSTANCE_METHODS.get(typeName);
-    if (coreMethods) {
-      if (!coreMethods.has(methodName)) {
-        // Also check Object's universal methods
-        const objectMethods = CORE_INSTANCE_METHODS.get("Object");
-        if (!objectMethods || !objectMethods.has(methodName)) {
-          this.warn(
-            `Type '${typeName}' does not define an instance method '${methodName}'.`,
-            node.name,
-            "unknown-method",
-          );
-        }
+    let knownClass = false;
+
+    while (current !== null) {
+      if (visited.has(current)) break;
+      visited.add(current);
+
+      // Check user-defined class
+      const userClass = this.classRegistry.get(current);
+      if (userClass) {
+        knownClass = true;
+        if (userClass.instanceMethods.has(methodName)) return; // found it
+        // Walk up to the superclass
+        current = userClass.superclass;
+        continue;
       }
-      return;
+
+      // Check core classes (end of the chain)
+      const coreMethods = CORE_INSTANCE_METHODS.get(current);
+      if (coreMethods) {
+        knownClass = true;
+        if (coreMethods.has(methodName)) return; // found it
+      }
+
+      // Reached a class we don't know about — stop walking
+      break;
     }
 
     // Unknown type — could be from an import, don't warn
+    if (!knownClass) return;
+
+    // Exhausted the chain without finding the method.
+    // Last check: Object's universal methods (toString, type, is)
+    const objectMethods = CORE_INSTANCE_METHODS.get("Object");
+    if (objectMethods && objectMethods.has(methodName)) return;
+
+    this.warn(
+      `Type '${typeName}' does not define an instance method '${methodName}'.`,
+      node.name,
+      "unknown-method",
+    );
   }
 
   /**

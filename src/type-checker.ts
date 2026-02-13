@@ -389,6 +389,9 @@ export class TypeChecker extends RecursiveVisitor {
     methodName: string,
     node: CallExpr,
   ): void {
+    // `attributes` is a universal static method available on every class.
+    if (methodName === "attributes") return;
+
     // Check user-defined classes
     const userClass = this.classRegistry.get(className);
     if (userClass) {

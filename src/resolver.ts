@@ -23,6 +23,16 @@ export class Resolver extends RecursiveVisitor {
     this.scope = new Scope(diagnostics);
   }
 
+  /**
+   * Register names from imported modules in the module scope.
+   * These are treated as known external names (like built-ins).
+   */
+  registerImportedNames(names: string[]): void {
+    for (const name of names) {
+      this.scope.declareExternal(name);
+    }
+  }
+
   resolve(node: Module): void {
     this.visitModule(node);
   }

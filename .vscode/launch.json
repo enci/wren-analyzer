@@ -26,6 +26,18 @@
       "console": "integratedTerminal"
     },
     {
+      "name": "Analyze module fixtures",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
+      "args": [
+        "cli/main.ts",
+        "${workspaceFolder}/test/fixtures/modules"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Analyze folder (JSON output)",
       "type": "node",
       "request": "launch",

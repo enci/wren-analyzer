@@ -43,6 +43,17 @@ export class Scope {
     this.scopes = [moduleScope];
   }
 
+  /**
+   * Register a name in module scope as an external (imported) name.
+   * These are treated like built-ins — they exist but don't point to a token.
+   */
+  declareExternal(name: string): void {
+    const moduleScope = this.scopes[0]!;
+    if (moduleScope !== null && !moduleScope.has(name)) {
+      moduleScope.set(name, true);
+    }
+  }
+
   declare(name: Token): void {
     const scope = this.scopes[this.scopes.length - 1];
     if (scope === null) return; // inside class sentinel

@@ -101,7 +101,7 @@ class MethodSet {
 /**
  * Registry of known class methods. Maps class name → method info.
  */
-interface ClassInfo {
+export interface ClassInfo {
   instanceMethods: MethodSet;
   staticMethods: MethodSet;
   superclass: string | null;
@@ -183,7 +183,7 @@ function getReceiverClassName(expr: Expr): string | null {
 /**
  * Build a class registry from all ClassStmt nodes in the module.
  */
-function buildClassRegistry(module: Module): Map<string, ClassInfo> {
+export function buildClassRegistry(module: Module): Map<string, ClassInfo> {
   const registry = new Map<string, ClassInfo>();
 
   for (const stmt of module.statements) {
@@ -304,7 +304,10 @@ export class TypeChecker extends RecursiveVisitor {
     this.diagnostics = diagnostics;
   }
 
-  check(node: Module): void {
+  check(
+    node: Module,
+    importedClasses?: Map<string, ClassInfo>,
+  ): void {
     // Skip type-checking when the source has parse/resolve errors.
     // The AST is likely malformed and would produce nonsensical warnings.
     const hasErrors = this.diagnostics.some(
@@ -314,6 +317,16 @@ export class TypeChecker extends RecursiveVisitor {
 
     // Pre-scan: build class registry from all ClassStmt in module
     this.classRegistry = buildClassRegistry(node);
+
+    // Merge in classes from imported modules (imported first so local wins)
+    if (importedClasses) {
+      for (const [name, info] of importedClasses) {
+        if (!this.classRegistry.has(name)) {
+          this.classRegistry.set(name, info);
+        }
+      }
+    }
+
     this.visitModule(node);
   }
 

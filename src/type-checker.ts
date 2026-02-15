@@ -14,6 +14,7 @@ import type {
 import { RecursiveVisitor, visitExpr, visitStmt } from "./visitor.js";
 import type { Diagnostic } from "./types.js";
 import { DiagnosticSeverity } from "./types.js";
+import { getCoreRegistry } from "./core/core-registry.js";
 
 // Type environment: a stack of scopes mapping variable names to type names.
 // Tracks both explicitly declared types (annotations) and inferred types separately.
@@ -231,66 +232,9 @@ function registerClass(
   registry.set(cls.name.text, { instanceMethods, staticMethods, superclass });
 }
 
-// Core classes always available in Wren — their methods are known.
-// We only list commonly called methods to avoid false positives on operators.
-const CORE_INSTANCE_METHODS = new Map<string, Set<string>>([
-  ["Object", new Set(["toString", "type", "is"])],
-  ["Bool", new Set(["toString"])],
-  ["Null", new Set(["toString"])],
-  ["Num", new Set([
-    "abs", "acos", "asin", "atan", "cbrt", "ceil", "cos", "floor",
-    "round", "sin", "sqrt", "tan", "log", "log2", "exp", "pow",
-    "fraction", "truncate", "sign", "isInteger", "isNan", "isInfinity",
-    "min", "max", "clamp", "toString",
-  ])],
-  ["String", new Set([
-    "contains", "count", "endsWith", "indexOf", "replace", "split",
-    "startsWith", "trim", "trimEnd", "trimStart", "bytes", "codePoints",
-    "toString", "iterate", "iteratorValue",
-  ])],
-  ["List", new Set([
-    "add", "addAll", "clear", "count", "indexOf", "insert", "iterate",
-    "iteratorValue", "remove", "removeAt", "sort", "swap", "toString",
-  ])],
-  ["Map", new Set([
-    "clear", "containsKey", "count", "keys", "values", "iterate",
-    "remove", "toString",
-  ])],
-  ["Range", new Set([
-    "from", "to", "min", "max", "isInclusive", "iterate",
-    "iteratorValue", "toString",
-  ])],
-  ["Fiber", new Set([
-    "call", "error", "isDone", "transfer", "transferError", "try",
-  ])],
-  ["Fn", new Set(["arity", "call", "toString"])],
-  ["Sequence", new Set([
-    "all", "any", "contains", "count", "each", "isEmpty", "map",
-    "skip", "take", "where", "reduce", "join", "toList", "toString",
-  ])],
-]);
-
-// Core class inheritance hierarchy (instance methods only — statics are not inherited).
-const CORE_SUPERCLASS = new Map<string, string>([
-  ["List", "Sequence"],
-  ["Map", "Sequence"],
-  ["Range", "Sequence"],
-  ["String", "Sequence"],
-]);
-
-const CORE_STATIC_METHODS = new Map<string, Set<string>>([
-  ["Object", new Set(["same"])],
-  ["Num", new Set([
-    "fromString", "infinity", "nan", "pi", "tau",
-    "largest", "smallest", "maxSafeInteger", "minSafeInteger",
-  ])],
-  ["String", new Set(["fromCodePoint", "fromByte"])],
-  ["List", new Set(["new", "filled"])],
-  ["Map", new Set(["new"])],
-  ["Fiber", new Set(["new", "abort", "current", "suspend", "yield"])],
-  ["Fn", new Set(["new"])],
-  ["System", new Set(["print", "printAll", "write", "writeAll", "clock", "gc"])],
-]);
+// Core classes are now loaded from parsed Wren stub files (see core/stubs.ts).
+// The getCoreRegistry() function returns a Map<string, ClassInfo> with full
+// arity tracking — a strict upgrade over the previous Set<string> approach.
 
 export class TypeChecker extends RecursiveVisitor {
   private env = new TypeEnvironment();
@@ -324,6 +268,14 @@ export class TypeChecker extends RecursiveVisitor {
         if (!this.classRegistry.has(name)) {
           this.classRegistry.set(name, info);
         }
+      }
+    }
+
+    // Merge core classes (Object, Num, String, List, etc.) into the registry.
+    // User-defined and imported classes take precedence.
+    for (const [name, info] of getCoreRegistry()) {
+      if (!this.classRegistry.has(name)) {
+        this.classRegistry.set(name, info);
       }
     }
 
@@ -461,40 +413,24 @@ export class TypeChecker extends RecursiveVisitor {
     // `attributes` is a universal static method available on every class.
     if (methodName === "attributes") return;
 
-    // Check user-defined classes
-    const userClass = this.classRegistry.get(className);
-    if (userClass) {
-      if (!userClass.staticMethods.has(methodName)) {
-        this.warn(
-          `Class '${className}' does not define a static method '${methodName}'.`,
-          node.name,
-          "unknown-method",
-        );
-      } else if (!userClass.staticMethods.hasArity(methodName, arity)) {
-        const arityDesc = arity === -1 ? "a getter" : `a method with ${arity} argument${arity === 1 ? "" : "s"}`;
-        this.warn(
-          `Class '${className}' defines '${methodName}' but not as ${arityDesc}.`,
-          node.name,
-          "wrong-arity",
-        );
-      }
-      return;
-    }
+    // Look up in the unified registry (user-defined + imported + core)
+    const cls = this.classRegistry.get(className);
+    if (!cls) return; // Unknown class — could be from an import, don't warn
 
-    // Check core classes
-    const coreMethods = CORE_STATIC_METHODS.get(className);
-    if (coreMethods) {
-      if (!coreMethods.has(methodName)) {
-        this.warn(
-          `Class '${className}' does not define a static method '${methodName}'.`,
-          node.name,
-          "unknown-method",
-        );
-      }
-      return;
+    if (!cls.staticMethods.has(methodName)) {
+      this.warn(
+        `Class '${className}' does not define a static method '${methodName}'.`,
+        node.name,
+        "unknown-method",
+      );
+    } else if (!cls.staticMethods.hasArity(methodName, arity)) {
+      const arityDesc = arity === -1 ? "a getter" : `a method with ${arity} argument${arity === 1 ? "" : "s"}`;
+      this.warn(
+        `Class '${className}' defines '${methodName}' but not as ${arityDesc}.`,
+        node.name,
+        "wrong-arity",
+      );
     }
-
-    // Unknown class — could be from an import, don't warn
   }
 
   private checkInstanceMethodExists(
@@ -503,7 +439,7 @@ export class TypeChecker extends RecursiveVisitor {
     arity: number,
     node: CallExpr,
   ): void {
-    // Walk the superclass chain for user-defined classes.
+    // Walk the superclass chain (unified registry: user + imported + core).
     // Instance methods are inherited, so Bar inherits Foo's methods.
     let current: string | null = typeName;
     const visited = new Set<string>(); // guard against cycles
@@ -516,29 +452,14 @@ export class TypeChecker extends RecursiveVisitor {
       if (visited.has(current)) break;
       visited.add(current);
 
-      // Check user-defined class
-      const userClass = this.classRegistry.get(current);
-      if (userClass) {
-        knownClass = true;
-        if (userClass.instanceMethods.hasArity(methodName, arity)) return; // exact match
-        if (userClass.instanceMethods.has(methodName)) foundName = true;
-        // Walk up to the superclass
-        current = userClass.superclass;
-        continue;
-      }
+      const cls = this.classRegistry.get(current);
+      if (!cls) break; // Reached a class we don't know about — stop walking
 
-      // Check core classes — walk their hierarchy too
-      const coreMethods = CORE_INSTANCE_METHODS.get(current);
-      if (coreMethods) {
-        knownClass = true;
-        if (coreMethods.has(methodName)) return; // found it (core methods don't track arity)
-        // Walk up the core superclass chain (e.g. List → Sequence)
-        current = CORE_SUPERCLASS.get(current) ?? null;
-        continue;
-      }
-
-      // Reached a class we don't know about — stop walking
-      break;
+      knownClass = true;
+      if (cls.instanceMethods.hasArity(methodName, arity)) return; // exact match
+      if (cls.instanceMethods.has(methodName)) foundName = true;
+      // Walk up to the superclass
+      current = cls.superclass;
     }
 
     // Unknown type — could be from an import, don't warn
@@ -546,8 +467,9 @@ export class TypeChecker extends RecursiveVisitor {
 
     // Exhausted the chain without finding the method.
     // Last check: Object's universal methods (toString, type, is)
-    const objectMethods = CORE_INSTANCE_METHODS.get("Object");
-    if (objectMethods && objectMethods.has(methodName)) return;
+    const objectClass = this.classRegistry.get("Object");
+    if (objectClass && objectClass.instanceMethods.hasArity(methodName, arity)) return;
+    if (objectClass && objectClass.instanceMethods.has(methodName)) foundName = true;
 
     if (foundName) {
       // The method name exists but not at the called arity

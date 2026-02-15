@@ -11,6 +11,7 @@ export { formatDiagnosticsJson, formatDiagnosticsPretty } from "./reporter.js";
 export { ModuleResolver } from "./module-resolver.js";
 export { buildClassRegistry } from "./type-checker.js";
 export type { ClassInfo } from "./type-checker.js";
+export { BUILTIN_MODULES, isBuiltinModule, getCoreRegistry, getBuiltinModuleRegistry } from "./core/core-registry.js";
 
 export type {
   Module,
@@ -50,7 +51,9 @@ import type { ClassInfo } from "./type-checker.js";
 import { SourceFile } from "./source-file.js";
 import { ModuleResolver } from "./module-resolver.js";
 import type { Diagnostic } from "./types.js";
+import { DiagnosticSeverity } from "./types.js";
 import type { Module, ImportStmt } from "./ast.js";
+import { isBuiltinModule, getBuiltinModuleRegistry } from "./core/core-registry.js";
 
 export interface AnalysisOptions {
   /**
@@ -91,6 +94,7 @@ export function analyze(
       moduleResolver,
       importedClasses,
       importedNames,
+      diagnostics,
     );
   }
 
@@ -148,6 +152,8 @@ function parseModule(source: string, path: string): Module | null {
  * Resolve imports from the main module and collect class registries.
  * Handles both `import "mod" for Foo, Bar` (selective) and
  * `import "mod"` (bare — imports all top-level names).
+ * Also handles built-in modules ("random", "meta") and emits
+ * diagnostics for unresolved imports.
  */
 function resolveImports(
   module: Module,
@@ -155,6 +161,7 @@ function resolveImports(
   moduleResolver: ModuleResolver,
   importedClasses: Map<string, ClassInfo>,
   importedNames: string[],
+  diagnostics: Diagnostic[],
   visited = new Set<string>(),
 ): void {
   // Prevent circular imports
@@ -167,8 +174,44 @@ function resolveImports(
     // Strip quotes from the path token text
     const moduleName = importStmt.path.text.replace(/^"|"$/g, "");
 
+    // Handle built-in modules (e.g. "random", "meta")
+    if (isBuiltinModule(moduleName)) {
+      const builtinRegistry = getBuiltinModuleRegistry(moduleName);
+      if (builtinRegistry) {
+        if (importStmt.variables !== null) {
+          // Selective: import "random" for Random
+          for (const variable of importStmt.variables) {
+            const name = variable.text;
+            const classInfo = builtinRegistry.get(name);
+            if (classInfo && !importedClasses.has(name)) {
+              importedClasses.set(name, classInfo);
+            }
+          }
+        } else {
+          // Bare: import "random"
+          for (const [name, classInfo] of builtinRegistry) {
+            if (!importedClasses.has(name)) {
+              importedClasses.set(name, classInfo);
+            }
+            importedNames.push(name);
+          }
+        }
+      }
+      continue;
+    }
+
     const resolvedPath = moduleResolver.resolve(moduleName, mainPath);
-    if (resolvedPath === null) continue;
+    if (resolvedPath === null) {
+      // Emit unresolved-import diagnostic
+      diagnostics.push({
+        message: `Cannot resolve module '${moduleName}'.`,
+        severity: DiagnosticSeverity.Warning,
+        span: { start: importStmt.path.start, length: importStmt.path.length },
+        source: "wren-analyzer",
+        code: "unresolved-import",
+      });
+      continue;
+    }
     if (visited.has(resolvedPath)) continue;
 
     const source = moduleResolver.readModule(resolvedPath);
@@ -220,6 +263,7 @@ function resolveImports(
       moduleResolver,
       importedClasses,
       importedNames,
+      diagnostics,
       visited,
     );
   }

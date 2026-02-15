@@ -185,6 +185,17 @@ function resolveImports(
             const classInfo = builtinRegistry.get(name);
             if (classInfo && !importedClasses.has(name)) {
               importedClasses.set(name, classInfo);
+            } else if (!classInfo) {
+              diagnostics.push({
+                message: `Module '${moduleName}' does not export '${name}'.`,
+                severity: DiagnosticSeverity.Warning,
+                span: {
+                  start: variable.start,
+                  length: variable.length,
+                },
+                source: "wren-analyzer",
+                code: "unknown-import-variable",
+              });
             }
           }
         } else {
@@ -236,6 +247,18 @@ function resolveImports(
         const classInfo = registry.get(name);
         if (classInfo && !importedClasses.has(name)) {
           importedClasses.set(name, classInfo);
+        } else if (!classInfo && !topLevelNames.includes(name)) {
+          // Name is not a class or a top-level variable in the module
+          diagnostics.push({
+            message: `Module '${moduleName}' does not export '${name}'.`,
+            severity: DiagnosticSeverity.Warning,
+            span: {
+              start: variable.start,
+              length: variable.length,
+            },
+            source: "wren-analyzer",
+            code: "unknown-import-variable",
+          });
         }
       }
     } else {

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { join } from "path";
 import { getCoreRegistry, getBuiltinModuleRegistry, isBuiltinModule, BUILTIN_MODULES } from "../src/core/core-registry.js";
 import { analyze } from "../src/index.js";
 
@@ -420,6 +421,113 @@ describe("core-registry", () => {
       });
       const unresolvedWarnings = diagnostics.filter(d => d.code === "unresolved-import");
       expect(unresolvedWarnings).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
+  // Unknown import variable diagnostics
+  // ===========================================================================
+
+  describe("unknown import variable diagnostics", () => {
+    const MODULES_DIR = join(import.meta.dirname!, "fixtures", "modules");
+
+    it("warns when importing non-existent name from file module", () => {
+      const source = `import "helper" for NonExistent`;
+      const { diagnostics } = analyze(source, join(MODULES_DIR, "test.wren"), {
+        searchPaths: [MODULES_DIR],
+      });
+      const warnings = diagnostics.filter(d => d.code === "unknown-import-variable");
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.message).toContain("NonExistent");
+      expect(warnings[0]!.message).toContain("helper");
+    });
+
+    it("warns when importing non-existent name from builtin module", () => {
+      const source = `import "random" for Bogus`;
+      const { diagnostics } = analyze(source, "/tmp/test.wren", {
+        searchPaths: ["/tmp"],
+      });
+      const warnings = diagnostics.filter(d => d.code === "unknown-import-variable");
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.message).toContain("Bogus");
+      expect(warnings[0]!.message).toContain("random");
+    });
+
+    it("does not warn for valid class import", () => {
+      const source = `import "helper" for Helper`;
+      const { diagnostics } = analyze(source, join(MODULES_DIR, "test.wren"), {
+        searchPaths: [MODULES_DIR],
+      });
+      const warnings = diagnostics.filter(d => d.code === "unknown-import-variable");
+      expect(warnings).toHaveLength(0);
+    });
+
+    it("does not warn for valid top-level variable import", () => {
+      // helper.wren exports HELPER_VERSION as a top-level var
+      const source = `import "helper" for HELPER_VERSION`;
+      const { diagnostics } = analyze(source, join(MODULES_DIR, "test.wren"), {
+        searchPaths: [MODULES_DIR],
+      });
+      const warnings = diagnostics.filter(d => d.code === "unknown-import-variable");
+      expect(warnings).toHaveLength(0);
+    });
+
+    it("warns only for missing names in a mixed import", () => {
+      const source = `import "helper" for Helper, NonExistent`;
+      const { diagnostics } = analyze(source, join(MODULES_DIR, "test.wren"), {
+        searchPaths: [MODULES_DIR],
+      });
+      const warnings = diagnostics.filter(d => d.code === "unknown-import-variable");
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.message).toContain("NonExistent");
+    });
+
+    it("warns for each missing name when multiple are invalid", () => {
+      const source = `import "helper" for Foo, Bar, Baz`;
+      const { diagnostics } = analyze(source, join(MODULES_DIR, "test.wren"), {
+        searchPaths: [MODULES_DIR],
+      });
+      const warnings = diagnostics.filter(d => d.code === "unknown-import-variable");
+      expect(warnings).toHaveLength(3);
+    });
+
+    it("does not warn for bare imports", () => {
+      const source = `import "helper"`;
+      const { diagnostics } = analyze(source, join(MODULES_DIR, "test.wren"), {
+        searchPaths: [MODULES_DIR],
+      });
+      const warnings = diagnostics.filter(d => d.code === "unknown-import-variable");
+      expect(warnings).toHaveLength(0);
+    });
+
+    it("does not emit unknown-import-variable when module is unresolved", () => {
+      const source = `import "noexist" for Foo`;
+      const { diagnostics } = analyze(source, "/tmp/test.wren", {
+        searchPaths: ["/tmp"],
+      });
+      // Should get unresolved-import but NOT unknown-import-variable
+      const unresolvedWarnings = diagnostics.filter(d => d.code === "unresolved-import");
+      const unknownVarWarnings = diagnostics.filter(d => d.code === "unknown-import-variable");
+      expect(unresolvedWarnings).toHaveLength(1);
+      expect(unknownVarWarnings).toHaveLength(0);
+    });
+
+    it("does not warn for valid builtin class (Random from random)", () => {
+      const source = `import "random" for Random`;
+      const { diagnostics } = analyze(source, "/tmp/test.wren", {
+        searchPaths: ["/tmp"],
+      });
+      const warnings = diagnostics.filter(d => d.code === "unknown-import-variable");
+      expect(warnings).toHaveLength(0);
+    });
+
+    it("does not warn for valid builtin class (Meta from meta)", () => {
+      const source = `import "meta" for Meta`;
+      const { diagnostics } = analyze(source, "/tmp/test.wren", {
+        searchPaths: ["/tmp"],
+      });
+      const warnings = diagnostics.filter(d => d.code === "unknown-import-variable");
+      expect(warnings).toHaveLength(0);
     });
   });
 });

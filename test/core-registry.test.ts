@@ -530,4 +530,172 @@ describe("core-registry", () => {
       expect(warnings).toHaveLength(0);
     });
   });
+
+  // ===========================================================================
+  // Return type tracking
+  // ===========================================================================
+
+  describe("return type tracking", () => {
+    it("tracks Num getter return types", () => {
+      const num = getCoreRegistry().get("Num")!;
+      expect(num.instanceMethods.getReturnType("abs", -1)).toBe("Num");
+      expect(num.instanceMethods.getReturnType("ceil", -1)).toBe("Num");
+      expect(num.instanceMethods.getReturnType("floor", -1)).toBe("Num");
+      expect(num.instanceMethods.getReturnType("isInteger", -1)).toBe("Bool");
+      expect(num.instanceMethods.getReturnType("isNan", -1)).toBe("Bool");
+      expect(num.instanceMethods.getReturnType("isInfinity", -1)).toBe("Bool");
+      expect(num.instanceMethods.getReturnType("toString", -1)).toBe("String");
+    });
+
+    it("tracks Num method return types", () => {
+      const num = getCoreRegistry().get("Num")!;
+      expect(num.instanceMethods.getReturnType("+", 1)).toBe("Num");
+      expect(num.instanceMethods.getReturnType("-", 1)).toBe("Num");
+      expect(num.instanceMethods.getReturnType("*", 1)).toBe("Num");
+      expect(num.instanceMethods.getReturnType("/", 1)).toBe("Num");
+      expect(num.instanceMethods.getReturnType("<", 1)).toBe("Bool");
+      expect(num.instanceMethods.getReturnType("==", 1)).toBe("Bool");
+      expect(num.instanceMethods.getReturnType("..", 1)).toBe("Range");
+      expect(num.instanceMethods.getReturnType("...", 1)).toBe("Range");
+      expect(num.instanceMethods.getReturnType("clamp", 2)).toBe("Num");
+      expect(num.instanceMethods.getReturnType("min", 1)).toBe("Num");
+      expect(num.instanceMethods.getReturnType("max", 1)).toBe("Num");
+    });
+
+    it("tracks Num static return types", () => {
+      const num = getCoreRegistry().get("Num")!;
+      expect(num.staticMethods.getReturnType("fromString", 1)).toBe("Num");
+      expect(num.staticMethods.getReturnType("pi", -1)).toBe("Num");
+      expect(num.staticMethods.getReturnType("infinity", -1)).toBe("Num");
+    });
+
+    it("tracks String method return types", () => {
+      const str = getCoreRegistry().get("String")!;
+      expect(str.instanceMethods.getReturnType("+", 1)).toBe("String");
+      expect(str.instanceMethods.getReturnType("contains", 1)).toBe("Bool");
+      expect(str.instanceMethods.getReturnType("startsWith", 1)).toBe("Bool");
+      expect(str.instanceMethods.getReturnType("endsWith", 1)).toBe("Bool");
+      expect(str.instanceMethods.getReturnType("split", 1)).toBe("List");
+      expect(str.instanceMethods.getReturnType("indexOf", 1)).toBe("Num");
+      expect(str.instanceMethods.getReturnType("indexOf", 2)).toBe("Num");
+      expect(str.instanceMethods.getReturnType("trim", 0)).toBe("String");
+      expect(str.instanceMethods.getReturnType("replace", 2)).toBe("String");
+      expect(str.instanceMethods.getReturnType("toString", -1)).toBe("String");
+      expect(str.instanceMethods.getReturnType("byteCount", -1)).toBe("Num");
+    });
+
+    it("tracks List method return types", () => {
+      const list = getCoreRegistry().get("List")!;
+      expect(list.instanceMethods.getReturnType("count", -1)).toBe("Num");
+      expect(list.instanceMethods.getReturnType("sort", 0)).toBe("List");
+      expect(list.instanceMethods.getReturnType("sort", 1)).toBe("List");
+      expect(list.instanceMethods.getReturnType("indexOf", 1)).toBe("Num");
+      expect(list.instanceMethods.getReturnType("toString", -1)).toBe("String");
+      expect(list.instanceMethods.getReturnType("+", 1)).toBe("List");
+      expect(list.staticMethods.getReturnType("new", 0)).toBe("List");
+      expect(list.staticMethods.getReturnType("filled", 2)).toBe("List");
+    });
+
+    it("tracks Map method return types", () => {
+      const map = getCoreRegistry().get("Map")!;
+      expect(map.instanceMethods.getReturnType("containsKey", 1)).toBe("Bool");
+      expect(map.instanceMethods.getReturnType("count", -1)).toBe("Num");
+      expect(map.instanceMethods.getReturnType("keys", -1)).toBe("List");
+      expect(map.instanceMethods.getReturnType("values", -1)).toBe("List");
+      expect(map.staticMethods.getReturnType("new", 0)).toBe("Map");
+    });
+
+    it("tracks Bool method return types", () => {
+      const bool = getCoreRegistry().get("Bool")!;
+      expect(bool.instanceMethods.getReturnType("!", -1)).toBe("Bool");
+      expect(bool.instanceMethods.getReturnType("toString", -1)).toBe("String");
+    });
+
+    it("tracks Range method return types", () => {
+      const range = getCoreRegistry().get("Range")!;
+      expect(range.instanceMethods.getReturnType("from", -1)).toBe("Num");
+      expect(range.instanceMethods.getReturnType("to", -1)).toBe("Num");
+      expect(range.instanceMethods.getReturnType("min", -1)).toBe("Num");
+      expect(range.instanceMethods.getReturnType("max", -1)).toBe("Num");
+      expect(range.instanceMethods.getReturnType("isInclusive", -1)).toBe("Bool");
+      expect(range.instanceMethods.getReturnType("toString", -1)).toBe("String");
+    });
+
+    it("tracks Sequence method return types", () => {
+      const seq = getCoreRegistry().get("Sequence")!;
+      expect(seq.instanceMethods.getReturnType("all", 1)).toBe("Bool");
+      expect(seq.instanceMethods.getReturnType("any", 1)).toBe("Bool");
+      expect(seq.instanceMethods.getReturnType("contains", 1)).toBe("Bool");
+      expect(seq.instanceMethods.getReturnType("isEmpty", -1)).toBe("Bool");
+      expect(seq.instanceMethods.getReturnType("count", -1)).toBe("Num");
+      expect(seq.instanceMethods.getReturnType("toList", -1)).toBe("List");
+      expect(seq.instanceMethods.getReturnType("join", 0)).toBe("String");
+      expect(seq.instanceMethods.getReturnType("join", 1)).toBe("String");
+      expect(seq.instanceMethods.getReturnType("map", 1)).toBe("Sequence");
+      expect(seq.instanceMethods.getReturnType("toString", -1)).toBe("String");
+    });
+
+    it("tracks Object method return types", () => {
+      const obj = getCoreRegistry().get("Object")!;
+      expect(obj.instanceMethods.getReturnType("==", 1)).toBe("Bool");
+      expect(obj.instanceMethods.getReturnType("!=", 1)).toBe("Bool");
+      expect(obj.instanceMethods.getReturnType("is", 1)).toBe("Bool");
+      expect(obj.instanceMethods.getReturnType("!", -1)).toBe("Bool");
+      expect(obj.instanceMethods.getReturnType("toString", -1)).toBe("String");
+      expect(obj.staticMethods.getReturnType("same", 2)).toBe("Bool");
+    });
+
+    it("tracks Fiber return types", () => {
+      const fiber = getCoreRegistry().get("Fiber")!;
+      expect(fiber.instanceMethods.getReturnType("isDone", -1)).toBe("Bool");
+      expect(fiber.staticMethods.getReturnType("new", 1)).toBe("Fiber");
+      expect(fiber.staticMethods.getReturnType("current", -1)).toBe("Fiber");
+    });
+
+    it("tracks Fn return types", () => {
+      const fn = getCoreRegistry().get("Fn")!;
+      expect(fn.instanceMethods.getReturnType("arity", -1)).toBe("Num");
+      expect(fn.instanceMethods.getReturnType("toString", -1)).toBe("String");
+      expect(fn.staticMethods.getReturnType("new", 1)).toBe("Fn");
+    });
+
+    it("tracks System return types", () => {
+      const sys = getCoreRegistry().get("System")!;
+      expect(sys.staticMethods.getReturnType("clock", -1)).toBe("Num");
+    });
+
+    it("returns null for unannotated methods", () => {
+      const fiber = getCoreRegistry().get("Fiber")!;
+      // call() has no return type annotation
+      expect(fiber.instanceMethods.getReturnType("call", 0)).toBeNull();
+    });
+
+    it("returns undefined for nonexistent methods", () => {
+      const num = getCoreRegistry().get("Num")!;
+      expect(num.instanceMethods.getReturnType("nonexistent", 0)).toBeUndefined();
+    });
+
+    it("tracks Random module return types", () => {
+      const random = getBuiltinModuleRegistry("random")!.get("Random")!;
+      expect(random.instanceMethods.getReturnType("float", 0)).toBe("Num");
+      expect(random.instanceMethods.getReturnType("int", 1)).toBe("Num");
+      expect(random.instanceMethods.getReturnType("sample", 2)).toBe("List");
+    });
+
+    it("tracks Meta module return types", () => {
+      const meta = getBuiltinModuleRegistry("meta")!.get("Meta")!;
+      expect(meta.staticMethods.getReturnType("getModuleVariables", 1)).toBe("List");
+      expect(meta.staticMethods.getReturnType("compileExpression", 1)).toBe("Fn");
+      expect(meta.staticMethods.getReturnType("compile", 1)).toBe("Fn");
+    });
+
+    it("constructor return types are inferred as class name", () => {
+      const random = getBuiltinModuleRegistry("random")!.get("Random")!;
+      expect(random.staticMethods.getReturnType("new", 0)).toBe("Random");
+      expect(random.staticMethods.getReturnType("new", 1)).toBe("Random");
+
+      const list = getCoreRegistry().get("List")!;
+      expect(list.staticMethods.getReturnType("new", 0)).toBe("List");
+    });
+  });
 });

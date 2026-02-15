@@ -665,4 +665,134 @@ Foo.bar("extra")
       expect(w[0]).toContain("1 argument");
     });
   });
+
+  describe("method return type inference", () => {
+    it("infers type from Num getter and checks methods", () => {
+      const w = warnings(`
+var x = 42.abs
+x.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Num");
+      expect(w[0]).toContain("nonExistent");
+    });
+
+    it("infers String from split and checks methods", () => {
+      const w = warnings(`
+var parts = "hello,world".split(",")
+parts.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("List");
+      expect(w[0]).toContain("nonExistent");
+    });
+
+    it("infers type from static method return type", () => {
+      const w = warnings(`
+var n = Num.fromString("42")
+n.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Num");
+      expect(w[0]).toContain("nonExistent");
+    });
+
+    it("infers Num from arithmetic infix operators", () => {
+      const w = warnings(`
+var x = 1 + 2
+x.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Num");
+      expect(w[0]).toContain("nonExistent");
+    });
+
+    it("infers Bool from comparison operators", () => {
+      const w = warnings(`
+var x = 1 < 2
+x.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Bool");
+      expect(w[0]).toContain("nonExistent");
+    });
+
+    it("infers Range from range operators", () => {
+      const w = warnings(`
+var r = 1..10
+r.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Range");
+      expect(w[0]).toContain("nonExistent");
+    });
+
+    it("infers String from string concatenation", () => {
+      const w = warnings(`
+var s = "hello" + " world"
+s.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("String");
+      expect(w[0]).toContain("nonExistent");
+    });
+
+    it("infers Bool from prefix negation of Bool", () => {
+      const w = warnings(`
+var x = !true
+x.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Bool");
+      expect(w[0]).toContain("nonExistent");
+    });
+
+    it("no false positive for unannotated return types", () => {
+      // System.print() has no return type annotation, so result type is unknown.
+      // Calling anything on the result should not warn.
+      expect(warnings(`
+var result = System.print("hello")
+result.anything()
+`)).toEqual([]);
+    });
+
+    it("no warning on valid method after inference", () => {
+      // 42.abs → Num, and Num has ceil
+      expect(warnings(`
+var x = 42.abs
+x.ceil
+`)).toEqual([]);
+    });
+
+    it("infers List from List.new() constructor", () => {
+      const w = warnings(`
+var items = List.new()
+items.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("List");
+      expect(w[0]).toContain("nonExistent");
+    });
+
+    it("infers type through method chains on known types", () => {
+      // "hello".contains("h") -> Bool
+      const w = warnings(`
+var x = "hello".contains("h")
+x.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Bool");
+      expect(w[0]).toContain("nonExistent");
+    });
+
+    it("infers Num from bitwise complement prefix operator", () => {
+      const w = warnings(`
+var x = ~42
+x.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Num");
+      expect(w[0]).toContain("nonExistent");
+    });
+  });
 });

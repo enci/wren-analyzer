@@ -10,6 +10,8 @@ import type {
   CallExpr,
   ClassStmt,
   TypeAnnotation,
+  InfixExpr,
+  PrefixExpr,
 } from "./ast.js";
 import { RecursiveVisitor, visitExpr, visitStmt } from "./visitor.js";
 import type { Diagnostic } from "./types.js";
@@ -65,21 +67,22 @@ class TypeEnvironment {
 }
 
 /**
- * A method set that tracks arities per method name.
+ * A method set that tracks arities and return types per method name.
  * In Wren, `foo` (getter), `foo()` (zero-arg), and `foo(_)` (one-arg)
  * are distinct method signatures.
  * Arity -1 represents a getter (no parentheses).
  */
 class MethodSet {
-  private methods = new Map<string, Set<number>>();
+  // name → (arity → return type). Return type is null when not annotated.
+  private methods = new Map<string, Map<number, string | null>>();
 
-  add(name: string, arity: number): void {
+  add(name: string, arity: number, returnType: string | null = null): void {
     let arities = this.methods.get(name);
     if (!arities) {
-      arities = new Set();
+      arities = new Map();
       this.methods.set(name, arities);
     }
-    arities.add(arity);
+    arities.set(arity, returnType);
   }
 
   /** Check if a method with this name exists at any arity. */
@@ -95,7 +98,22 @@ class MethodSet {
 
   /** Get the set of known arities for a method name. */
   getArities(name: string): Set<number> | undefined {
-    return this.methods.get(name);
+    const inner = this.methods.get(name);
+    if (!inner) return undefined;
+    return new Set(inner.keys());
+  }
+
+  /**
+   * Get the annotated return type for a specific method signature.
+   * Returns `undefined` if the method/arity doesn't exist,
+   * `null` if it exists but has no return type annotation,
+   * or a type name string if annotated.
+   */
+  getReturnType(name: string, arity: number): string | null | undefined {
+    const arities = this.methods.get(name);
+    if (!arities) return undefined;
+    if (!arities.has(arity)) return undefined;
+    return arities.get(arity)!;
   }
 }
 
@@ -131,9 +149,19 @@ function inferType(expr: Expr): string | null {
 }
 
 /**
- * Infer the type of an expression using both literal analysis and environment lookup.
+ * Infer the type of an expression using literal analysis, environment lookup,
+ * and method return type resolution from the class registry.
  */
-function inferExprType(expr: Expr, env: TypeEnvironment): string | null {
+function inferExprType(
+  expr: Expr,
+  env: TypeEnvironment,
+  classRegistry: Map<string, ClassInfo> = new Map(),
+  currentClassName: string | null = null,
+  depth: number = 0,
+): string | null {
+  // Guard against excessively deep recursion in pathological ASTs
+  if (depth > 10) return null;
+
   // Literal types
   const literal = inferType(expr);
   if (literal !== null) return literal;
@@ -158,7 +186,124 @@ function inferExprType(expr: Expr, env: TypeEnvironment): string | null {
 
   // Grouping: (expr)
   if (expr.kind === "GroupingExpr") {
-    return inferExprType(expr.expression, env);
+    return inferExprType(expr.expression, env, classRegistry, currentClassName, depth + 1);
+  }
+
+  // Method call on a known-type receiver → look up return type in registry
+  if (expr.kind === "CallExpr" && expr.receiver !== null) {
+    const methodName = expr.name.text;
+    const arity = expr.arguments === null ? -1 : expr.arguments.length;
+
+    const receiverClassName = getReceiverClassName(expr.receiver);
+    if (receiverClassName) {
+      // Static call: Foo.bar()
+      const cls = classRegistry.get(receiverClassName);
+      if (cls) {
+        const rt = cls.staticMethods.getReturnType(methodName, arity);
+        if (rt) return rt;
+      }
+    } else {
+      // Instance call: resolve receiver type, then look up return type
+      const receiverType = inferReceiverType(
+        expr.receiver, env, classRegistry, currentClassName, depth + 1,
+      );
+      if (receiverType) {
+        const rt = lookupInstanceReturnType(receiverType, methodName, arity, classRegistry);
+        if (rt) return rt;
+      }
+    }
+  }
+
+  // InfixExpr: operators are method calls on the left operand (arity 1)
+  if (expr.kind === "InfixExpr") {
+    const leftType = inferExprType(
+      (expr as InfixExpr).left, env, classRegistry, currentClassName, depth + 1,
+    );
+    if (leftType) {
+      const rt = lookupInstanceReturnType(leftType, (expr as InfixExpr).operator.text, 1, classRegistry);
+      if (rt) return rt;
+    }
+  }
+
+  // PrefixExpr: prefix operators are getters (arity -1), e.g. `-x`, `!x`, `~x`
+  if (expr.kind === "PrefixExpr") {
+    const operandType = inferExprType(
+      (expr as PrefixExpr).right, env, classRegistry, currentClassName, depth + 1,
+    );
+    if (operandType) {
+      const rt = lookupInstanceReturnType(operandType, (expr as PrefixExpr).operator.text, -1, classRegistry);
+      if (rt) return rt;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Infer the type of a receiver expression (for method call type checking).
+ * Supports `this`, variable references, literals, and chained method calls.
+ */
+function inferReceiverType(
+  expr: Expr,
+  env: TypeEnvironment,
+  classRegistry: Map<string, ClassInfo>,
+  currentClassName: string | null,
+  depth: number = 0,
+): string | null {
+  // `this` → current class
+  if (expr.kind === "ThisExpr") {
+    return currentClassName;
+  }
+
+  // Variable reference
+  if (
+    expr.kind === "CallExpr" &&
+    expr.receiver === null &&
+    expr.arguments === null
+  ) {
+    return env.get(expr.name.text);
+  }
+
+  // Literal types
+  const literal = inferType(expr);
+  if (literal !== null) return literal;
+
+  // Chained method call: infer through the full expression
+  return inferExprType(expr, env, classRegistry, currentClassName, depth);
+}
+
+/**
+ * Look up the return type of an instance method, walking the superclass chain.
+ */
+function lookupInstanceReturnType(
+  typeName: string,
+  methodName: string,
+  arity: number,
+  classRegistry: Map<string, ClassInfo>,
+): string | null {
+  let current: string | null = typeName;
+  const visited = new Set<string>();
+
+  while (current !== null) {
+    if (visited.has(current)) break;
+    visited.add(current);
+
+    const cls = classRegistry.get(current);
+    if (!cls) break;
+
+    const rt = cls.instanceMethods.getReturnType(methodName, arity);
+    if (rt !== undefined) return rt; // found (null = no annotation, string = type)
+
+    current = cls.superclass;
+  }
+
+  // Fall back to Object (universal base)
+  if (!visited.has("Object")) {
+    const objectClass = classRegistry.get("Object");
+    if (objectClass) {
+      const rt = objectClass.instanceMethods.getReturnType(methodName, arity);
+      if (rt !== undefined) return rt;
+    }
   }
 
   return null;
@@ -207,10 +352,18 @@ function registerClass(
     const name = method.name.text;
     // Arity: -1 for getters (no parens), otherwise parameter count
     const arity = method.parameters === null ? -1 : method.parameters.length;
+
+    // Extract return type annotation. Constructors implicitly return the class.
+    const annotatedReturnType = method.returnType
+      ? method.returnType.name.text
+      : null;
+    const returnType =
+      method.constructKeyword !== null ? cls.name.text : annotatedReturnType;
+
     if (method.staticKeyword !== null || method.constructKeyword !== null) {
-      staticMethods.add(name, arity);
+      staticMethods.add(name, arity, returnType);
     } else {
-      instanceMethods.add(name, arity);
+      instanceMethods.add(name, arity, returnType);
     }
 
     // Setter variant: name= (registered in addition to the base name).
@@ -299,7 +452,9 @@ export class TypeChecker extends RecursiveVisitor {
       this.env.setDeclared(node.name.text, node.typeAnnotation.name.text);
     } else if (node.initializer !== null) {
       // Infer type from initializer (inferred → only for method-existence checks)
-      const initType = inferExprType(node.initializer, this.env);
+      const initType = inferExprType(
+        node.initializer, this.env, this.classRegistry, this.currentClassName,
+      );
       if (initType !== null) {
         this.env.setInferred(node.name.text, initType);
       }
@@ -492,22 +647,9 @@ export class TypeChecker extends RecursiveVisitor {
    * Infer the type of a receiver expression.
    */
   private inferReceiverType(expr: Expr): string | null {
-    // `this` → current class
-    if (expr.kind === "ThisExpr") {
-      return this.currentClassName;
-    }
-
-    // Variable reference: CallExpr { receiver: null, name: "foo", arguments: null }
-    if (
-      expr.kind === "CallExpr" &&
-      expr.receiver === null &&
-      expr.arguments === null
-    ) {
-      return this.env.get(expr.name.text);
-    }
-
-    // Literal types
-    return inferType(expr);
+    return inferReceiverType(
+      expr, this.env, this.classRegistry, this.currentClassName,
+    );
   }
 
   // --- Method return types ---

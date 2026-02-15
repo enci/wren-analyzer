@@ -4,7 +4,15 @@
 // These are Wren source strings declaring every method on every core class.
 // They are parsed by the analyzer's own lexer/parser to build the core class
 // registry used for type-checking.  All methods use `foreign` declarations —
-// we only need signatures (name + arity), not implementations.
+// we only need signatures (name + arity + types), not implementations.
+//
+// Type annotations use the analyzer's existing syntax:
+//   Parameter types:  foreign foo(x: Num, y: String)
+//   Return types:     foreign bar -> Bool
+//   Both:             foreign clamp(min: Num, max: Num) -> Num
+//
+// Methods whose return type is truly dynamic (Fn.call, Fiber.call, etc.)
+// are left without return type annotations.
 //
 // Note: `Null` and `Class` are Wren keywords so they cannot be used as class
 // names in stub source. Their methods (toString, !) are inherited from Object
@@ -31,23 +39,23 @@ export const CORE_MODULE_SOURCE = `
 // ---------------------------------------------------------------------------
 class Object {
   // C primitives (wren_core.c)
-  foreign !
-  foreign ==(other)
-  foreign !=(other)
-  foreign is(type)
-  foreign toString
+  foreign ! -> Bool
+  foreign ==(other) -> Bool
+  foreign !=(other) -> Bool
+  foreign is(type) -> Bool
+  foreign toString -> String
   foreign type
 
   // Static
-  foreign static same(a, b)
+  foreign static same(a, b) -> Bool
 }
 
 // ---------------------------------------------------------------------------
 // Bool
 // ---------------------------------------------------------------------------
 class Bool {
-  foreign toString
-  foreign !
+  foreign toString -> String
+  foreign ! -> Bool
 }
 
 // ---------------------------------------------------------------------------
@@ -55,10 +63,11 @@ class Bool {
 // ---------------------------------------------------------------------------
 class Fiber {
   // Instance methods (wren_core.c)
+  // call/transfer/try return whatever the fiber yields — type is dynamic.
   foreign call()
   foreign call(value)
   foreign error
-  foreign isDone
+  foreign isDone -> Bool
   foreign transfer()
   foreign transfer(value)
   foreign transferError(error)
@@ -66,9 +75,9 @@ class Fiber {
   foreign try(value)
 
   // Static methods (wren_core.c — registered on metaclass)
-  foreign static new(fn)
+  foreign static new(fn: Fn) -> Fiber
   foreign static abort(message)
-  foreign static current
+  foreign static current -> Fiber
   foreign static suspend()
   foreign static yield()
   foreign static yield(value)
@@ -78,7 +87,8 @@ class Fiber {
 // Fn
 // ---------------------------------------------------------------------------
 class Fn {
-  foreign arity
+  foreign arity -> Num
+  // call() returns whatever the function returns — type is dynamic.
   foreign call()
   foreign call(a1)
   foreign call(a1, a2)
@@ -96,195 +106,194 @@ class Fn {
   foreign call(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14)
   foreign call(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15)
   foreign call(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16)
-  foreign toString
+  foreign toString -> String
 
-  foreign static new(fn)
+  foreign static new(fn) -> Fn
 }
 
 // ---------------------------------------------------------------------------
 // Num
 // ---------------------------------------------------------------------------
 class Num {
-  // Operators (wren_core.c)
-  foreign -(other)
-  foreign +(other)
-  foreign *(other)
-  foreign /(other)
-  foreign <(other)
-  foreign >(other)
-  foreign <=(other)
-  foreign >=(other)
-  foreign &(other)
-  foreign |(other)
-  foreign ^(other)
-  foreign <<(other)
-  foreign >>(other)
-  foreign %(other)
-  foreign ==(other)
-  foreign !=(other)
-  foreign ..(other)
-  foreign ...(other)
-  foreign ~
+  // Arithmetic operators
+  foreign -(other: Num) -> Num
+  foreign +(other: Num) -> Num
+  foreign *(other: Num) -> Num
+  foreign /(other: Num) -> Num
+  foreign %(other: Num) -> Num
 
-  // Unary minus (prefix operator)
-  foreign -
+  // Comparison operators
+  foreign <(other: Num) -> Bool
+  foreign >(other: Num) -> Bool
+  foreign <=(other: Num) -> Bool
+  foreign >=(other: Num) -> Bool
+  foreign ==(other) -> Bool
+  foreign !=(other) -> Bool
 
-  // Getters (wren_core.c)
-  foreign abs
-  foreign acos
-  foreign asin
-  foreign atan
-  foreign cbrt
-  foreign ceil
-  foreign cos
-  foreign floor
-  foreign round
-  foreign sin
-  foreign sqrt
-  foreign tan
-  foreign log
-  foreign log2
-  foreign exp
-  foreign fraction
-  foreign isInfinity
-  foreign isInteger
-  foreign isNan
-  foreign sign
-  foreign toString
-  foreign truncate
+  // Bitwise operators
+  foreign &(other: Num) -> Num
+  foreign |(other: Num) -> Num
+  foreign ^(other: Num) -> Num
+  foreign <<(other: Num) -> Num
+  foreign >>(other: Num) -> Num
 
-  // Methods with arguments (wren_core.c)
-  foreign atan(other)
-  foreign pow(exponent)
-  foreign min(other)
-  foreign max(other)
-  foreign clamp(min, max)
+  // Range operators
+  foreign ..(other: Num) -> Range
+  foreign ...(other: Num) -> Range
 
-  // Static getters (wren_core.c — registered on metaclass)
-  foreign static fromString(value)
-  foreign static infinity
-  foreign static nan
-  foreign static pi
-  foreign static tau
-  foreign static largest
-  foreign static smallest
-  foreign static maxSafeInteger
-  foreign static minSafeInteger
+  // Unary operators
+  foreign ~ -> Num
+  foreign - -> Num
+
+  // Math getters
+  foreign abs -> Num
+  foreign acos -> Num
+  foreign asin -> Num
+  foreign atan -> Num
+  foreign cbrt -> Num
+  foreign ceil -> Num
+  foreign cos -> Num
+  foreign floor -> Num
+  foreign round -> Num
+  foreign sin -> Num
+  foreign sqrt -> Num
+  foreign tan -> Num
+  foreign log -> Num
+  foreign log2 -> Num
+  foreign exp -> Num
+  foreign fraction -> Num
+  foreign sign -> Num
+  foreign truncate -> Num
+
+  // Boolean getters
+  foreign isInfinity -> Bool
+  foreign isInteger -> Bool
+  foreign isNan -> Bool
+
+  foreign toString -> String
+
+  // Methods with arguments
+  foreign atan(other: Num) -> Num
+  foreign pow(exponent: Num) -> Num
+  foreign min(other: Num) -> Num
+  foreign max(other: Num) -> Num
+  foreign clamp(min: Num, max: Num) -> Num
+
+  // Static getters
+  foreign static fromString(value: String) -> Num
+  foreign static infinity -> Num
+  foreign static nan -> Num
+  foreign static pi -> Num
+  foreign static tau -> Num
+  foreign static largest -> Num
+  foreign static smallest -> Num
+  foreign static maxSafeInteger -> Num
+  foreign static minSafeInteger -> Num
 }
 
 // ---------------------------------------------------------------------------
 // Sequence  (base class for iterable collections)
 // ---------------------------------------------------------------------------
 class Sequence {
-  // Wren-defined methods (wren_core.wren)
-  foreign all(f)
-  foreign any(f)
-  foreign contains(element)
-  foreign count
-  foreign count(f)
-  foreign each(f)
-  foreign isEmpty
-  foreign map(transformation)
-  foreign skip(count)
-  foreign take(count)
-  foreign where(predicate)
-  foreign reduce(acc, f)
-  foreign reduce(f)
-  foreign join()
-  foreign join(sep)
-  foreign toList
-  foreign toString
+  foreign all(f: Fn) -> Bool
+  foreign any(f: Fn) -> Bool
+  foreign contains(element) -> Bool
+  foreign count -> Num
+  foreign count(f: Fn) -> Num
+  foreign each(f: Fn)
+  foreign isEmpty -> Bool
+  foreign map(transformation: Fn) -> Sequence
+  foreign skip(count: Num) -> Sequence
+  foreign take(count: Num) -> Sequence
+  foreign where(predicate: Fn) -> Sequence
+  foreign reduce(acc, f: Fn)
+  foreign reduce(f: Fn)
+  foreign join() -> String
+  foreign join(sep: String) -> String
+  foreign toList -> List
+  foreign toString -> String
 }
 
 // ---------------------------------------------------------------------------
 // String  (is Sequence)
 // ---------------------------------------------------------------------------
 class String is Sequence {
-  // C primitives (wren_core.c)
-  foreign +(other)
-  foreign [index]
-  foreign byteAt(index)
-  foreign byteCount
-  foreign codePointAt(index)
-  foreign contains(search)
-  foreign endsWith(suffix)
-  foreign indexOf(search)
-  foreign indexOf(search, start)
+  foreign +(other) -> String
+  foreign [index] -> String
+  foreign byteAt(index: Num) -> Num
+  foreign byteCount -> Num
+  foreign codePointAt(index: Num) -> Num
+  foreign contains(search: String) -> Bool
+  foreign endsWith(suffix: String) -> Bool
+  foreign indexOf(search: String) -> Num
+  foreign indexOf(search: String, start: Num) -> Num
   foreign iterate(iterator)
-  foreign iteratorValue(iterator)
-  foreign startsWith(prefix)
-  foreign toString
+  foreign iteratorValue(iterator) -> String
+  foreign startsWith(prefix: String) -> Bool
+  foreign toString -> String
 
-  // Wren-defined methods (wren_core.wren)
-  foreign bytes
-  foreign codePoints
-  foreign split(delimiter)
-  foreign replace(from, to)
-  foreign trim()
-  foreign trim(chars)
-  foreign trimEnd()
-  foreign trimEnd(chars)
-  foreign trimStart()
-  foreign trimStart(chars)
-  foreign *(count)
+  foreign bytes -> Sequence
+  foreign codePoints -> Sequence
+  foreign split(delimiter: String) -> List
+  foreign replace(from: String, to: String) -> String
+  foreign trim() -> String
+  foreign trim(chars: String) -> String
+  foreign trimEnd() -> String
+  foreign trimEnd(chars: String) -> String
+  foreign trimStart() -> String
+  foreign trimStart(chars: String) -> String
+  foreign *(count: Num) -> String
 
-  // Static methods (wren_core.c — registered on metaclass)
-  foreign static fromCodePoint(codePoint)
-  foreign static fromByte(byte)
+  foreign static fromCodePoint(codePoint: Num) -> String
+  foreign static fromByte(byte: Num) -> String
 }
 
 // ---------------------------------------------------------------------------
 // List  (is Sequence)
 // ---------------------------------------------------------------------------
 class List is Sequence {
-  // C primitives (wren_core.c)
   foreign [index]
   foreign [index]=(value)
-  foreign add(item)
+  foreign add(item) -> List
   foreign clear()
-  foreign count
-  foreign insert(index, item)
+  foreign count -> Num
+  foreign insert(index: Num, item) -> List
   foreign iterate(iterator)
   foreign iteratorValue(iterator)
-  foreign removeAt(index)
+  foreign removeAt(index: Num)
   foreign remove(value)
-  foreign indexOf(value)
-  foreign swap(index0, index1)
+  foreign indexOf(value) -> Num
+  foreign swap(index0: Num, index1: Num)
 
-  // Wren-defined methods (wren_core.wren)
-  foreign addAll(other)
-  foreign sort()
-  foreign sort(comparer)
-  foreign toString
-  foreign +(other)
-  foreign *(count)
+  foreign addAll(other) -> List
+  foreign sort() -> List
+  foreign sort(comparer: Fn) -> List
+  foreign toString -> String
+  foreign +(other) -> List
+  foreign *(count: Num) -> List
 
-  // Static methods (wren_core.c — registered on metaclass)
-  foreign static new()
-  foreign static filled(size, element)
+  foreign static new() -> List
+  foreign static filled(size: Num, element) -> List
 }
 
 // ---------------------------------------------------------------------------
 // Map  (is Sequence)
 // ---------------------------------------------------------------------------
 class Map is Sequence {
-  // C primitives (wren_core.c)
   foreign [key]
   foreign [key]=(value)
   foreign clear()
-  foreign containsKey(key)
-  foreign count
+  foreign containsKey(key) -> Bool
+  foreign count -> Num
   foreign remove(key)
   foreign iterate(iterator)
 
-  // Wren-defined methods (wren_core.wren)
-  foreign keys
-  foreign values
-  foreign toString
+  foreign keys -> List
+  foreign values -> List
+  foreign toString -> String
   foreign iteratorValue(iterator)
 
-  // Static methods (wren_core.c — registered on metaclass)
-  foreign static new()
+  foreign static new() -> Map
 }
 
 // ---------------------------------------------------------------------------
@@ -294,30 +303,28 @@ class MapEntry {
   construct new(key, value) {}
   foreign key
   foreign value
-  foreign toString
+  foreign toString -> String
 }
 
 // ---------------------------------------------------------------------------
 // Range  (is Sequence)
 // ---------------------------------------------------------------------------
 class Range is Sequence {
-  // C primitives (wren_core.c)
-  foreign from
-  foreign to
-  foreign min
-  foreign max
-  foreign isInclusive
+  foreign from -> Num
+  foreign to -> Num
+  foreign min -> Num
+  foreign max -> Num
+  foreign isInclusive -> Bool
   foreign iterate(iterator)
-  foreign iteratorValue(iterator)
-  foreign toString
+  foreign iteratorValue(iterator) -> Num
+  foreign toString -> String
 }
 
 // ---------------------------------------------------------------------------
 // System
 // ---------------------------------------------------------------------------
 class System {
-  // Static only (wren_core.c + wren_core.wren)
-  foreign static clock
+  foreign static clock -> Num
   foreign static gc()
   foreign static print()
   foreign static print(object)
@@ -334,17 +341,17 @@ class System {
 export const RANDOM_MODULE_SOURCE = `
 foreign class Random {
   construct new() {}
-  construct new(seed) {}
+  construct new(seed: Num) {}
 
-  foreign float()
-  foreign float(end)
-  foreign float(start, end)
-  foreign int()
-  foreign int(end)
-  foreign int(start, end)
-  foreign sample(list)
-  foreign sample(list, count)
-  foreign shuffle(list)
+  foreign float() -> Num
+  foreign float(end: Num) -> Num
+  foreign float(start: Num, end: Num) -> Num
+  foreign int() -> Num
+  foreign int(end: Num) -> Num
+  foreign int(start: Num, end: Num) -> Num
+  foreign sample(list: List)
+  foreign sample(list: List, count: Num) -> List
+  foreign shuffle(list: List)
 }
 `;
 
@@ -354,9 +361,9 @@ foreign class Random {
  */
 export const META_MODULE_SOURCE = `
 class Meta {
-  foreign static getModuleVariables(module)
-  foreign static eval(source)
-  foreign static compileExpression(source)
-  foreign static compile(source)
+  foreign static getModuleVariables(module: String) -> List
+  foreign static eval(source: String)
+  foreign static compileExpression(source: String) -> Fn
+  foreign static compile(source: String) -> Fn
 }
 `;

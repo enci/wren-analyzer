@@ -666,6 +666,72 @@ Foo.bar("extra")
     });
   });
 
+  describe("block argument arity", () => {
+    it("no warning for Fiber.new with block argument", () => {
+      expect(warnings(`
+var fiber = Fiber.new {
+  System.print("hello")
+}
+`)).toEqual([]);
+    });
+
+    it("no warning for Fiber.new with block argument (single line)", () => {
+      expect(warnings(`Fiber.new { 1 }`)).toEqual([]);
+    });
+
+    it("no warning for instance method with block argument", () => {
+      expect(warnings(`
+var list = [1, 2, 3]
+list.each {|x|
+  System.print(x)
+}
+`)).toEqual([]);
+    });
+
+    it("no warning for user class static method with block argument", () => {
+      expect(warnings(`
+class Foo {
+  static run(fn) { fn.call() }
+}
+Foo.run { System.print("hello") }
+`)).toEqual([]);
+    });
+
+    it("no warning for method with parens and block argument", () => {
+      expect(warnings(`
+class Foo {
+  construct new() {}
+  method(a, fn) { fn.call(a) }
+}
+class Main {
+  construct new() {
+    var f: Foo = Foo.new()
+    f.method("x") {|v| System.print(v) }
+  }
+}
+`)).toEqual([]);
+    });
+
+    it("warns on wrong arity even with block argument", () => {
+      // Fiber.new(fn) expects 1 arg; passing parens arg + block = arity 2
+      const w = warnings(`Fiber.new("extra") { 1 }`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Fiber");
+      expect(w[0]).toContain("new");
+      expect(w[0]).toContain("2 arguments");
+    });
+
+    it("infers Fiber type from Fiber.new with block", () => {
+      const w = warnings(`
+var fiber = Fiber.new { 1 }
+fiber.nonExistent()
+`);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Fiber");
+      expect(w[0]).toContain("nonExistent");
+    });
+  });
+
   describe("method return type inference", () => {
     it("infers type from Num getter and checks methods", () => {
       const w = warnings(`

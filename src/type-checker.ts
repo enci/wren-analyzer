@@ -192,7 +192,9 @@ function inferExprType(
   // Method call on a known-type receiver → look up return type in registry
   if (expr.kind === "CallExpr" && expr.receiver !== null) {
     const methodName = expr.name.text;
-    const arity = expr.arguments === null ? -1 : expr.arguments.length;
+    const arity = expr.arguments === null
+      ? (expr.blockArgument === null ? -1 : 1)
+      : expr.arguments.length + (expr.blockArgument === null ? 0 : 1);
 
     const receiverClassName = getReceiverClassName(expr.receiver);
     if (receiverClassName) {
@@ -539,8 +541,11 @@ export class TypeChecker extends RecursiveVisitor {
     if (node.receiver === null) return;
 
     const methodName = node.name.text;
-    // Arity: -1 for getter access (no parens), otherwise argument count
-    const arity = node.arguments === null ? -1 : node.arguments.length;
+    // Arity: -1 for getter access (no parens/block), otherwise argument count.
+    // Block arguments ({ ... }) count as one additional argument.
+    const arity = node.arguments === null
+      ? (node.blockArgument === null ? -1 : 1)
+      : node.arguments.length + (node.blockArgument === null ? 0 : 1);
 
     // Determine if this is a static call (PascalCase receiver) or instance call
     const receiverClassName = getReceiverClassName(node.receiver);

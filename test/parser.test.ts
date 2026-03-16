@@ -301,4 +301,95 @@ describe("Parser", () => {
       expect(method.returnType).toBeNull();
     });
   });
+
+  describe("error recovery", () => {
+    it("recovers from broken expression to parse subsequent class", () => {
+      const { module, errors } = parse("x.\nclass Foo {}");
+      expect(errors.length).toBeGreaterThan(0);
+      const classes = module.statements.filter(
+        (s) => s.kind === "ClassStmt",
+      );
+      expect(classes).toHaveLength(1);
+      expect((classes[0] as ClassStmt).name.text).toBe("Foo");
+    });
+
+    it("parses both classes when broken expression is between them", () => {
+      const { module, errors } = parse(
+        "class A {}\nx.\nclass B {}",
+      );
+      expect(errors.length).toBeGreaterThan(0);
+      const classes = module.statements.filter(
+        (s) => s.kind === "ClassStmt",
+      );
+      expect(classes).toHaveLength(2);
+      expect((classes[0] as ClassStmt).name.text).toBe("A");
+      expect((classes[1] as ClassStmt).name.text).toBe("B");
+    });
+
+    it("recovers from trailing dot to parse subsequent class", () => {
+      const { module, errors } = parse("Fiber.\nclass MyClass {}");
+      expect(errors.length).toBeGreaterThan(0);
+      const classes = module.statements.filter(
+        (s) => s.kind === "ClassStmt",
+      );
+      expect(classes).toHaveLength(1);
+      expect((classes[0] as ClassStmt).name.text).toBe("MyClass");
+    });
+
+    it("recovers from broken expression to parse subsequent import", () => {
+      const { module, errors } = parse(
+        'x.\nimport "foo" for Bar',
+      );
+      expect(errors.length).toBeGreaterThan(0);
+      const imports = module.statements.filter(
+        (s) => s.kind === "ImportStmt",
+      );
+      expect(imports).toHaveLength(1);
+    });
+
+    it("recovers from broken expression to parse subsequent var", () => {
+      const { module, errors } = parse("x.\nvar y = 42");
+      expect(errors.length).toBeGreaterThan(0);
+      const vars = module.statements.filter(
+        (s) => s.kind === "VarStmt",
+      );
+      expect(vars).toHaveLength(1);
+    });
+
+    it("recovers from broken method to parse subsequent method in class", () => {
+      const source = [
+        "class Foo {",
+        "  broken.",
+        "  good() { 42 }",
+        "}",
+      ].join("\n");
+      const { module, errors } = parse(source);
+      expect(errors.length).toBeGreaterThan(0);
+      const cls = module.statements.find(
+        (s) => s.kind === "ClassStmt",
+      ) as ClassStmt;
+      expect(cls).toBeDefined();
+      const goodMethod = cls.methods.find((m) => m.name.text === "good");
+      expect(goodMethod).toBeDefined();
+    });
+
+    it("recovers from broken statement in method body", () => {
+      const source = [
+        "class Foo {",
+        "  bar() {",
+        "    x.",
+        "    var y = 42",
+        "  }",
+        "}",
+      ].join("\n");
+      const { module, errors } = parse(source);
+      expect(errors.length).toBeGreaterThan(0);
+      const cls = module.statements.find(
+        (s) => s.kind === "ClassStmt",
+      ) as ClassStmt;
+      expect(cls).toBeDefined();
+      expect(cls.name.text).toBe("Foo");
+      expect(cls.methods).toHaveLength(1);
+    });
+  });
 });

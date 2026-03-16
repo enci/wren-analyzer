@@ -76,8 +76,17 @@ export class Parser {
 
     const statements: Stmt[] = [];
     while (this.peek() !== TokenType.Eof) {
+      const errorCountBefore = this.diagnostics.length;
       statements.push(this.definition());
+
       if (this.peek() === TokenType.Eof) break;
+
+      // If new errors were introduced, synchronize to the next definition
+      if (this.diagnostics.length > errorCountBefore) {
+        this.synchronize();
+        continue;
+      }
+
       this.consumeLine("Expect newline.");
     }
 
@@ -153,8 +162,16 @@ export class Parser {
     this.ignoreLine();
 
     while (!this.match(TokenType.RightBrace) && this.peek() !== TokenType.Eof) {
+      const errorCountBefore = this.diagnostics.length;
       methods.push(this.method());
+
       if (this.match(TokenType.RightBrace)) break;
+
+      if (this.diagnostics.length > errorCountBefore) {
+        this.synchronizeInClass();
+        continue;
+      }
+
       this.consumeLine("Expect newline after definition in class.");
     }
     const rightBrace = this.previous;
@@ -238,8 +255,11 @@ export class Parser {
 
     let body: Body | null = null;
     if (foreignKeyword === null) {
-      this.consume(TokenType.LeftBrace, "Expect '{' before method body.");
-      body = this.finishBody(parameters);
+      if (this.match(TokenType.LeftBrace)) {
+        body = this.finishBody(parameters);
+      } else {
+        this.error("Expect '{' before method body.");
+      }
     }
 
     return {
@@ -353,7 +373,15 @@ export class Parser {
 
     const statements: Stmt[] = [];
     while (this.peek() !== TokenType.Eof) {
+      const errorCountBefore = this.diagnostics.length;
       statements.push(this.definition());
+
+      if (this.diagnostics.length > errorCountBefore) {
+        this.synchronizeInBody();
+        if (this.match(TokenType.RightBrace)) break;
+        continue;
+      }
+
       this.consumeLine("Expect newline after statement.");
       if (this.match(TokenType.RightBrace)) break;
     }
@@ -495,14 +523,22 @@ export class Parser {
         };
       } else if (this.match(TokenType.Dot)) {
         this.ignoreLine();
-        const name = this.consume(TokenType.Name, "Expect method name after '.'.");
+        if (this.peek() !== TokenType.Name) {
+          this.error("Expect method name after '.'.");
+          break;
+        }
+        const name = this.advance();
         expr = this.methodCall(expr, name);
       } else if (this.peekDotAfterNewline()) {
         // Allow newline before '.' for method chaining: `expr\n.method()`
         this.ignoreLine();
         this.advance(); // consume the dot
         this.ignoreLine();
-        const name = this.consume(TokenType.Name, "Expect method name after '.'.");
+        if (this.peek() !== TokenType.Name) {
+          this.error("Expect method name after '.'.");
+          break;
+        }
+        const name = this.advance();
         expr = this.methodCall(expr, name);
       } else {
         break;
@@ -790,6 +826,96 @@ export class Parser {
       source: "wren-analyzer",
       code: "parse-error",
     });
+  }
+
+  /**
+   * Panic-mode error recovery at the module level.
+   * Skips tokens until it reaches a likely top-level definition boundary
+   * (class, foreign, import, var) or EOF.
+   */
+  private synchronize(): void {
+    while (this.peek() !== TokenType.Eof) {
+      const next = this.peek();
+      // These keywords are reserved — they always start a new definition
+      if (
+        next === TokenType.Class ||
+        next === TokenType.Foreign ||
+        next === TokenType.Import ||
+        next === TokenType.Var
+      ) {
+        return;
+      }
+      // Skip past newlines
+      if (next === TokenType.Line) {
+        this.advance();
+        this.ignoreLine();
+        continue;
+      }
+      this.advance();
+    }
+  }
+
+  /**
+   * Panic-mode recovery inside a class body.
+   * Skips to the next method boundary (construct, foreign, static,
+   * or closing brace).
+   */
+  private synchronizeInClass(): void {
+    while (this.peek() !== TokenType.Eof) {
+      const next = this.peek();
+      // Stop at end of class
+      if (next === TokenType.RightBrace) {
+        return;
+      }
+      // These keywords are unambiguous method-definition starters
+      if (
+        next === TokenType.Construct ||
+        next === TokenType.Foreign ||
+        next === TokenType.Static
+      ) {
+        return;
+      }
+      // After a newline, a Name or operator likely starts the next method
+      if (next === TokenType.Line) {
+        this.advance();
+        this.ignoreLine();
+        const afterLine = this.peek();
+        if (
+          afterLine === TokenType.Construct ||
+          afterLine === TokenType.Foreign ||
+          afterLine === TokenType.Static ||
+          afterLine === TokenType.Name ||
+          afterLine === TokenType.LeftBracket ||
+          afterLine === TokenType.RightBrace ||
+          afterLine === TokenType.Eof ||
+          INFIX_OPERATORS.includes(afterLine) ||
+          afterLine === TokenType.Bang ||
+          afterLine === TokenType.Tilde
+        ) {
+          return;
+        }
+        continue;
+      }
+      this.advance();
+    }
+  }
+
+  /**
+   * Panic-mode recovery inside a method/block body.
+   * Skips to the next statement boundary (newline) or closing brace.
+   */
+  private synchronizeInBody(): void {
+    while (this.peek() !== TokenType.Eof) {
+      if (this.peek() === TokenType.RightBrace) {
+        return;
+      }
+      if (this.peek() === TokenType.Line) {
+        this.advance();
+        this.ignoreLine();
+        return;
+      }
+      this.advance();
+    }
   }
 }
 

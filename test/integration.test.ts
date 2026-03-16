@@ -292,3 +292,41 @@ describe("analyze() API", () => {
     }
   });
 });
+
+describe("error recovery in analysis", () => {
+  it("produces class info for classes after a broken expression", () => {
+    const source = "x.\nclass Good {\n  foo() { 42 }\n}";
+    const result = analyze(source);
+    expect(result.diagnostics.length).toBeGreaterThan(0);
+    const classes = result.module.statements.filter(
+      (s) => s.kind === "ClassStmt",
+    );
+    expect(classes.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("preserves both classes when error is between them", () => {
+    const source =
+      "class A {\n  foo() { 42 }\n}\nx.\nclass B {\n  bar() { 42 }\n}";
+    const result = analyze(source);
+    expect(result.diagnostics.length).toBeGreaterThan(0);
+    const classes = result.module.statements.filter(
+      (s) => s.kind === "ClassStmt",
+    );
+    expect(classes).toHaveLength(2);
+  });
+
+  it("preserves imports when error appears after them", () => {
+    const source = 'import "foo"\nx.\nclass Bar {}';
+    const result = analyze(source);
+    const imports = result.module.statements.filter(
+      (s) => s.kind === "ImportStmt",
+    );
+    expect(imports).toHaveLength(1);
+  });
+
+  it("does not crash on trailing dot at end of file", () => {
+    const result = analyze("Fiber.");
+    expect(result.module.kind).toBe("Module");
+    expect(result.diagnostics.length).toBeGreaterThan(0);
+  });
+});

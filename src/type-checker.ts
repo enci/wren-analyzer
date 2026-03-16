@@ -465,7 +465,11 @@ export class TypeChecker extends RecursiveVisitor {
     // Check initializer against annotation
     if (node.typeAnnotation !== null && node.initializer !== null) {
       const initType = inferType(node.initializer);
-      if (initType !== null && initType !== node.typeAnnotation.name.text) {
+      if (
+        initType !== null &&
+        initType !== "Null" &&
+        initType !== node.typeAnnotation.name.text
+      ) {
         this.warn(
           `Variable '${node.name.text}' is declared as ${node.typeAnnotation.name.text} but initialized with a ${initType} value.`,
           node.initializer,
@@ -474,18 +478,7 @@ export class TypeChecker extends RecursiveVisitor {
       }
     }
 
-    // Check: typed var with no initializer gets null
-    if (
-      node.typeAnnotation !== null &&
-      node.initializer === null &&
-      node.typeAnnotation.name.text !== "Null"
-    ) {
-      this.warn(
-        `Variable '${node.name.text}' is declared as ${node.typeAnnotation.name.text} but has no initializer (defaults to Null).`,
-        node.name,
-        "type-mismatch",
-      );
-    }
+    // Uninitialized typed vars default to null, which is valid for any type.
 
     super.visitVarStmt(node);
   }
@@ -513,7 +506,7 @@ export class TypeChecker extends RecursiveVisitor {
       const declaredType = this.env.getDeclared(varName);
       if (declaredType !== null) {
         const valueType = inferType(node.value);
-        if (valueType !== null && valueType !== declaredType) {
+        if (valueType !== null && valueType !== "Null" && valueType !== declaredType) {
           this.warn(
             `Variable '${varName}' is declared as ${declaredType} but assigned a ${valueType} value.`,
             node.value,
@@ -705,7 +698,11 @@ export class TypeChecker extends RecursiveVisitor {
       // Single-expression body: check as implicit return
       if (this.currentReturnType !== null) {
         const exprType = inferType(node.expression);
-        if (exprType !== null && exprType !== this.currentReturnType) {
+        if (
+          exprType !== null &&
+          exprType !== "Null" &&
+          exprType !== this.currentReturnType
+        ) {
           this.warn(
             `Method expects return type ${this.currentReturnType} but returns a ${exprType} value.`,
             node.expression,
@@ -729,23 +726,19 @@ export class TypeChecker extends RecursiveVisitor {
     if (this.currentReturnType !== null) {
       if (node.value !== null) {
         const valueType = inferType(node.value);
-        if (valueType !== null && valueType !== this.currentReturnType) {
+        if (
+          valueType !== null &&
+          valueType !== "Null" &&
+          valueType !== this.currentReturnType
+        ) {
           this.warn(
             `Method expects return type ${this.currentReturnType} but returns a ${valueType} value.`,
             node.value,
             "type-mismatch",
           );
         }
-      } else {
-        // Bare return in a typed method: implicit null return
-        if (this.currentReturnType !== "Null") {
-          this.warn(
-            `Method expects return type ${this.currentReturnType} but returns with no value (Null).`,
-            node.keyword,
-            "type-mismatch",
-          );
-        }
       }
+      // Bare return is valid — Wren methods can always return null.
     }
 
     super.visitReturnStmt(node);

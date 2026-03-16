@@ -1,6 +1,6 @@
-// A typed variable with no initializer gets null, which may not match.
+// A typed variable with no initializer gets null, which is valid for any type.
 {
-  var n: Num // expect warning
+  var n: Num
   System.print(n) // expect: null
 
   // Assigning the correct type afterward is fine.

@@ -14,9 +14,9 @@ class Foo {
     return "oops" // expect warning
   }
 
-  // Bare return in typed method: returns null, warns.
+  // Bare return in typed method: returns null, which is valid.
   static bareReturn() -> Num {
-    return // expect warning
+    return
   }
 
   // No return annotation: no checking.

@@ -65,10 +65,8 @@ describe("TypeChecker", () => {
       expect(warnings("var x: Null = null")).toEqual([]);
     });
 
-    it("warns on no initializer for typed var", () => {
-      const w = warnings("var x: Num");
-      expect(w).toHaveLength(1);
-      expect(w[0]).toContain("no initializer");
+    it("no warning on no initializer for typed var (null is valid)", () => {
+      expect(warnings("var x: Num")).toEqual([]);
     });
 
     it("no warning on no initializer for Null type", () => {
@@ -125,12 +123,10 @@ describe("TypeChecker", () => {
       expect(w[0]).toContain("String");
     });
 
-    it("warns on bare return in typed method", () => {
-      const w = warnings(
-        "class Foo {\n  bar() -> Num {\n    return\n  }\n}",
-      );
-      expect(w).toHaveLength(1);
-      expect(w[0]).toContain("Null");
+    it("no warning on bare return in typed method (null is valid)", () => {
+      expect(
+        warnings("class Foo {\n  bar() -> Num {\n    return\n  }\n}"),
+      ).toEqual([]);
     });
 
     it("no warning for method without return type", () => {
@@ -151,6 +147,54 @@ describe("TypeChecker", () => {
       );
       expect(w).toHaveLength(1);
       expect(w[0]).toContain("String");
+    });
+  });
+
+  describe("null compatibility", () => {
+    // In Wren, null is a valid value for any type.
+
+    it("no warning for null assigned to Num var", () => {
+      expect(warnings("var x: Num = null")).toEqual([]);
+    });
+
+    it("no warning for null assigned to String var", () => {
+      expect(warnings("var s: String = null")).toEqual([]);
+    });
+
+    it("no warning for null assigned to Bool var", () => {
+      expect(warnings("var b: Bool = null")).toEqual([]);
+    });
+
+    it("no warning for null reassigned to typed var", () => {
+      expect(warnings("var x: Num = 42\nx = null")).toEqual([]);
+    });
+
+    it("no warning for returning null from typed method", () => {
+      expect(
+        warnings("class Foo {\n  bar() -> Num {\n    return null\n  }\n}"),
+      ).toEqual([]);
+    });
+
+    it("no warning for null in single-expression body of typed method", () => {
+      expect(
+        warnings("class Foo {\n  bar() -> Num { null }\n}"),
+      ).toEqual([]);
+    });
+
+    it("no warning for bare return in typed method", () => {
+      expect(
+        warnings("class Foo {\n  bar() -> Num {\n    return\n  }\n}"),
+      ).toEqual([]);
+    });
+
+    it("no warning for uninitialized typed var", () => {
+      expect(warnings("var x: Num")).toEqual([]);
+    });
+
+    it("still warns on real type mismatch", () => {
+      const w = warnings("var x: Num = true");
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain("Bool");
     });
   });
 
